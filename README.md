@@ -2,6 +2,9 @@
 
 VeilBrief audits contracts, invoices, and selected page text for risks and suggests revisions. It replaces detected personal information with tokens before sending document text to a model. Suggested edits can restore those values in memory. Firestore history stores scrubbed findings and audit metadata.
 
+- Live web workbench: https://veilbrief.prince.sh
+- Walkthrough demo video: https://www.youtube.com/watch?v=UpsVoGQAXi0
+
 ## Architecture
 
 | Surface | Role |

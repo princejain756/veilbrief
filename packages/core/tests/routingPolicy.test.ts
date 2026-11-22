@@ -13,7 +13,7 @@ describe("selectExecutionRoute", () => {
 
     expect(route).toEqual({
       mode: "only_on_device",
-      targetCloudModel: "gemini-3.8-flash",
+      targetCloudModel: "gemini-3.5-flash-lite",
       mustScrubForCloud: false,
       reason: "offline_only_on_device",
     });
@@ -37,7 +37,7 @@ describe("selectExecutionRoute", () => {
     expect(route.mode).toBe("prefer_in_cloud");
     expect(route.reason).toBe("long_doc_cloud_scrubbed");
     expect(route.mustScrubForCloud).toBe(true);
-    expect(route.targetCloudModel).toBe("gemini-3.8-flash");
+    expect(route.targetCloudModel).toBe("gemini-3.5-flash-lite");
   });
 
   it("honors a strict local-only remote policy", () => {
@@ -59,15 +59,15 @@ describe("selectExecutionRoute", () => {
     const route = selectExecutionRoute(
       {
         ...DEFAULT_REMOTE_CONFIG,
-        cloud_model_name: "gemini-3.5-flash-lite",
-        cloud_fallback_model: "gemini-3.8-flash",
+        cloud_model_name: "gemini-3.8-flash",
+        cloud_fallback_model: "gemini-3.5-flash-lite",
       },
       {
         textLength: 40_000,
       },
     );
 
-    expect(route.targetCloudModel).toBe("gemini-3.5-flash-lite");
+    expect(route.targetCloudModel).toBe("gemini-3.8-flash");
   });
 
   it("routes PDF and heavy inputs to the fallback model with a shield", () => {
@@ -77,12 +77,12 @@ describe("selectExecutionRoute", () => {
     });
 
     expect(route.mode).toBe("prefer_in_cloud");
-    expect(route.targetCloudModel).toBe("gemini-3.5-flash-lite");
+    expect(route.targetCloudModel).toBe("gemini-3.8-flash");
     expect(route.reason).toBe("pdf_or_heavy_fallback_scrubbed");
     expect(route.mustScrubForCloud).toBe(true);
   });
 
-  it("never selects a unsupported Gemini 2.5 model", () => {
+  it("never selects an unsupported model identifier", () => {
     const route = selectExecutionRoute(
       {
         ...DEFAULT_REMOTE_CONFIG,
@@ -94,6 +94,6 @@ describe("selectExecutionRoute", () => {
       },
     );
 
-    expect(route.targetCloudModel).toBe("gemini-3.8-flash");
+    expect(route.targetCloudModel).toBe("gemini-3.5-flash-lite");
   });
 });

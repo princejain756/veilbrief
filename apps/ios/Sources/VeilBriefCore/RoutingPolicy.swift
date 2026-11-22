@@ -34,8 +34,8 @@ public struct HybridRemoteConfig: Equatable, Codable, Sendable {
     public var enforceLocalPiiShield: Bool
 
     public static let `default` = HybridRemoteConfig(
-        cloudModelName: "gemini-3.8-flash",
-        cloudFallbackModel: "gemini-3.5-flash-lite",
+        cloudModelName: "gemini-3.5-flash-lite",
+        cloudFallbackModel: "gemini-3.8-flash",
         defaultInferenceMode: .preferOnDevice,
         maxOnDeviceChars: 12_000,
         enforceLocalPiiShield: true
@@ -93,8 +93,26 @@ public enum RoutingPolicy {
 
     public static func isSupportedCloudModel(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed == HybridRemoteConfig.default.cloudModelName ||
-            trimmed == HybridRemoteConfig.default.cloudFallbackModel
+        return trimmed == "gemini-3.5-flash-lite" ||
+            trimmed == "gemini-3.8-flash" ||
+            trimmed == "gemini-4-hydrogen"
+    }
+
+    public static func cloudModelCandidates(from config: HybridRemoteConfig, primary: String) -> [String] {
+        var unique: [String] = []
+        for candidate in [
+            primary,
+            config.cloudFallbackModel,
+            HybridRemoteConfig.default.cloudModelName,
+            HybridRemoteConfig.default.cloudFallbackModel,
+            "gemini-4-hydrogen",
+        ] {
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            if isSupportedCloudModel(trimmed) && !unique.contains(trimmed) {
+                unique.append(trimmed)
+            }
+        }
+        return unique
     }
 
     public static func resolvedCloudModel(from config: HybridRemoteConfig, fallback: Bool = false) -> String {

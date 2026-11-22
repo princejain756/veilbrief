@@ -38,12 +38,18 @@ export interface RoutingContext {
 export const ON_DEVICE_TOKEN_LIMIT = 9216;
 
 export const DEFAULT_REMOTE_CONFIG: HybridRemoteConfig = {
-  cloud_model_name: "gemini-3.8-flash",
-  cloud_fallback_model: "gemini-3.5-flash-lite",
+  cloud_model_name: "gemini-3.5-flash-lite",
+  cloud_fallback_model: "gemini-3.8-flash",
   default_inference_mode: "prefer_on_device",
   max_on_device_chars: 12000,
   enforce_local_pii_shield: true,
 };
+
+const SUPPORTED_CLOUD_MODELS = new Set([
+  "gemini-3.5-flash-lite",
+  "gemini-3.8-flash",
+  "gemini-4-hydrogen",
+]);
 
 export function estimateDocumentTokens(textLength: number): number {
   return Math.max(1, Math.ceil(textLength / 4));
@@ -59,11 +65,7 @@ export function isInferenceMode(value: unknown): value is InferenceMode {
 }
 
 export function isSupportedCloudModel(value: string): boolean {
-  const model = value.trim();
-  return (
-    model === DEFAULT_REMOTE_CONFIG.cloud_model_name ||
-    model === DEFAULT_REMOTE_CONFIG.cloud_fallback_model
-  );
+  return SUPPORTED_CLOUD_MODELS.has(value.trim());
 }
 
 function cloudModelFor(

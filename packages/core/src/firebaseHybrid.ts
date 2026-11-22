@@ -145,6 +145,7 @@ export interface RunHybridAuditInput {
   persist?: boolean;
   onDeviceProgress?: (progressValue: number) => void;
   systemInstruction?: string;
+  modelFactory?: typeof createHybridModel;
 }
 
 export interface PersistedAuditRedFlag {
@@ -395,7 +396,7 @@ export async function initVeilBriefFirebase(
   const remoteConfig = getRemoteConfig(app);
   remoteConfig.settings.minimumFetchIntervalMillis = localDevelopment
     ? 0
-    : 3_600_000;
+    : 60_000;
   remoteConfig.defaultConfig = {
     ...DEFAULT_REMOTE_CONFIG,
     ...remoteConfigOverrides,
@@ -619,6 +620,37 @@ function buildAuditPrompt(scrubbedText: string): string {
   ].join("\n");
 }
 
+function isTransientCloudError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? `${error.name} ${error.message}`
+      : String(error ?? "");
+  return /500|503|429|high demand|overloaded|unavailable|AI\/fetch-error/i.test(
+    message,
+  );
+}
+
+export function resolveCloudModelCandidates(
+  primary: string,
+  fallback: string,
+): string[] {
+  const raw = [
+    primary,
+    fallback,
+    DEFAULT_REMOTE_CONFIG.cloud_model_name,
+    DEFAULT_REMOTE_CONFIG.cloud_fallback_model,
+    "gemini-4-hydrogen",
+  ];
+  const unique: string[] = [];
+  for (const candidate of raw) {
+    const trimmed = candidate.trim();
+    if (isSupportedCloudModel(trimmed) && !unique.includes(trimmed)) {
+      unique.push(trimmed);
+    }
+  }
+  return unique;
+}
+
 export async function runHybridAudit(
   input: RunHybridAuditInput,
 ): Promise<HybridAuditResult> {
@@ -641,26 +673,6 @@ export async function runHybridAudit(
   const prompt = buildAuditPrompt(shield.scrubbed);
   assertNoRawPii(prompt, shield.entities);
 
-  const hybridModel = createHybridModel(input.ai, {
-    route,
-    systemInstruction: input.systemInstruction,
-  });
-  let onDevicePrepared = false;
-
-  if (
-    route.mode === InferenceMode.ONLY_ON_DEVICE ||
-    route.mode === InferenceMode.PREFER_ON_DEVICE
-  ) {
-    try {
-      await hybridModel.prepareOnDeviceModel(input.onDeviceProgress);
-      onDevicePrepared = true;
-    } catch (error) {
-      if (route.mode === InferenceMode.ONLY_ON_DEVICE) {
-        throw error;
-      }
-    }
-  }
-
   const parts: Array<string | Part> = [prompt];
   if (input.image) {
     parts.push({
@@ -672,7 +684,65 @@ export async function runHybridAudit(
     });
   }
 
-  const result = await hybridModel.model.generateContent(parts);
+  const factory = input.modelFactory ?? createHybridModel;
+  const candidateModels =
+    route.mode === InferenceMode.ONLY_ON_DEVICE || input.image
+      ? [route.targetCloudModel]
+      : resolveCloudModelCandidates(
+          route.targetCloudModel,
+          config.cloud_fallback_model,
+        );
+
+  let result: Awaited<ReturnType<GenerativeModel["generateContent"]>> | null =
+    null;
+  let onDevicePrepared = false;
+  let attemptedCloudModel = route.targetCloudModel;
+  let lastError: unknown;
+
+  for (let idx = 0; idx < candidateModels.length; idx += 1) {
+    const candidate = candidateModels[idx];
+    if (!candidate) continue;
+    attemptedCloudModel = candidate;
+    const candidateRoute: ExecutionRoute = {
+      ...route,
+      targetCloudModel: attemptedCloudModel,
+    };
+    const hybridModel = factory(input.ai, {
+      route: candidateRoute,
+      systemInstruction: input.systemInstruction,
+    });
+    onDevicePrepared = false;
+
+    if (
+      candidateRoute.mode === InferenceMode.ONLY_ON_DEVICE ||
+      candidateRoute.mode === InferenceMode.PREFER_ON_DEVICE
+    ) {
+      try {
+        await hybridModel.prepareOnDeviceModel(input.onDeviceProgress);
+        onDevicePrepared = true;
+      } catch (error) {
+        if (candidateRoute.mode === InferenceMode.ONLY_ON_DEVICE) {
+          throw error;
+        }
+      }
+    }
+
+    try {
+      result = await hybridModel.model.generateContent(parts);
+      break;
+    } catch (error) {
+      lastError = error;
+      const hasNext = idx + 1 < candidateModels.length;
+      if (!hasNext || !isTransientCloudError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  if (!result) {
+    throw lastError ?? new Error("Hybrid inference did not return a response.");
+  }
+
   const response = result.response;
   const source = resolveInferenceSource(
     response.inferenceSource,
@@ -682,7 +752,7 @@ export async function runHybridAudit(
   const latencyMs = Math.round(performance.now() - startedAt);
   const modelUsed = source.inferenceSource === "on_device"
     ? "Gemini Nano 4"
-    : route.targetCloudModel;
+    : attemptedCloudModel;
   const parsed = parseAuditResponse(response.text());
   const audit: ParsedAuditResponse = {
     ...parsed,

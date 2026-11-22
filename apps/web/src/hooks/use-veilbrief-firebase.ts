@@ -215,6 +215,7 @@ export function useVeilBriefFirebase() {
     if (!remoteConfig) return;
 
     try {
+      remoteConfig.settings.minimumFetchIntervalMillis = 0;
       await fetchAndActivate(remoteConfig);
       const params = mergeRemoteParams(getAll(remoteConfig));
       refs.current.config = configFromRemoteParams(params);

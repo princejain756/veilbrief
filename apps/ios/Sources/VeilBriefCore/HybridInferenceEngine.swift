@@ -100,47 +100,68 @@ public enum HybridInferenceEngine {
 
         let ai = FirebaseAI.firebaseAI(backend: .googleAI())
 
-        let rawResponse: String
-        let detectedSource: InferenceSourceLabel
-        let modelUsed: String
-        let systemModelName = "apple-foundation-models-system-language-model"
+        let candidates = route.mode == .onlyOnDevice
+            ? [route.targetCloudModel]
+            : RoutingPolicy.cloudModelCandidates(from: config, primary: route.targetCloudModel)
 
-        if #available(iOS 26.0, macOS 26.0, *), route.mode != .onlyInCloud {
-            let session: GenerativeModelSession
-            switch route.mode {
-            case .onlyOnDevice:
-                session = ai.generativeModelSession(model: .systemModel())
-            case .preferOnDevice:
-                session = ai.generativeModelSession(
-                    model: .hybridModel(
-                        primary: .systemModel(),
-                        secondary: .geminiModel(name: route.targetCloudModel)
-                    )
-                )
-            case .preferInCloud:
-                session = ai.generativeModelSession(
-                    model: .hybridModel(
-                        primary: .geminiModel(name: route.targetCloudModel),
-                        secondary: .systemModel()
-                    )
-                )
-            case .onlyInCloud:
-                session = ai.generativeModelSession(model: .geminiModel(name: route.targetCloudModel))
+        var rawResponse = "{}"
+        var detectedSource: InferenceSourceLabel = .inCloud
+        var modelUsed = route.targetCloudModel
+        let systemModelName = "apple-foundation-models-system-language-model"
+        var lastError: Error? = nil
+
+        for (index, cloudCandidate) in candidates.enumerated() {
+            do {
+                if #available(iOS 26.0, macOS 26.0, *), route.mode != .onlyInCloud {
+                    let session: GenerativeModelSession
+                    switch route.mode {
+                    case .onlyOnDevice:
+                        session = ai.generativeModelSession(model: .systemModel())
+                    case .preferOnDevice:
+                        session = ai.generativeModelSession(
+                            model: .hybridModel(
+                                primary: .systemModel(),
+                                secondary: .geminiModel(name: cloudCandidate)
+                            )
+                        )
+                    case .preferInCloud:
+                        session = ai.generativeModelSession(
+                            model: .hybridModel(
+                                primary: .geminiModel(name: cloudCandidate),
+                                secondary: .systemModel()
+                            )
+                        )
+                    case .onlyInCloud:
+                        session = ai.generativeModelSession(model: .geminiModel(name: cloudCandidate))
+                    }
+                    let response = try await session.respond(to: wirePrompt)
+                    rawResponse = response.content
+                    let reportedModel = response.rawResponse.modelVersion
+                    detectedSource = route.mode == .onlyOnDevice || reportedModel == systemModelName ? .onDevice : .inCloud
+                    modelUsed = detectedSource == .onDevice ? systemModelName : cloudCandidate
+                } else {
+                    guard route.mode != .onlyOnDevice else {
+                        throw HybridInferenceError.onDeviceUnavailable
+                    }
+                    let model = ai.generativeModel(modelName: cloudCandidate)
+                    let response = try await model.generateContent(wirePrompt)
+                    rawResponse = response.text ?? "{}"
+                    detectedSource = .inCloud
+                    modelUsed = cloudCandidate
+                }
+                lastError = nil
+                break
+            } catch {
+                lastError = error
+                let hasNext = index + 1 < candidates.count
+                if !hasNext || route.mode == .onlyOnDevice || !isTransientCloudError(error) {
+                    throw error
+                }
             }
-            let response = try await session.respond(to: wirePrompt)
-            rawResponse = response.content
-            let reportedModel = response.rawResponse.modelVersion
-            detectedSource = route.mode == .onlyOnDevice || reportedModel == systemModelName ? .onDevice : .inCloud
-            modelUsed = detectedSource == .onDevice ? systemModelName : route.targetCloudModel
-        } else {
-            guard route.mode != .onlyOnDevice else {
-                throw HybridInferenceError.onDeviceUnavailable
-            }
-            let model = ai.generativeModel(modelName: route.targetCloudModel)
-            let response = try await model.generateContent(wirePrompt)
-            rawResponse = response.text ?? "{}"
-            detectedSource = .inCloud
-            modelUsed = route.targetCloudModel
+        }
+
+        if let lastError {
+            throw lastError
         }
 
         let parsed = parseAuditResponse(from: rawResponse)
@@ -212,6 +233,16 @@ public enum HybridInferenceEngine {
         } catch {
             return []
         }
+    }
+
+    private static func isTransientCloudError(_ error: Error) -> Bool {
+        let lower = error.localizedDescription.lowercased()
+        return lower.contains("500") ||
+            lower.contains("503") ||
+            lower.contains("429") ||
+            lower.contains("high demand") ||
+            lower.contains("overloaded") ||
+            lower.contains("unavailable")
     }
 
     private static func buildScrubbedPrompt(scrubbedText: String) -> String {

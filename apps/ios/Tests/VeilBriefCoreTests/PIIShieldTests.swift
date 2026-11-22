@@ -42,7 +42,7 @@ final class PIIShieldTests: XCTestCase {
         )
         XCTAssertEqual(shortRoute.mode, .preferOnDevice)
         XCTAssertEqual(shortRoute.reason, .shortDocPreferOnDevice)
-        XCTAssertEqual(shortRoute.targetCloudModel, "gemini-3.8-flash")
+        XCTAssertEqual(shortRoute.targetCloudModel, "gemini-3.5-flash-lite")
 
         let offlineRoute = RoutingPolicy.selectExecutionRoute(
             config: .default,
@@ -61,6 +61,8 @@ final class PIIShieldTests: XCTestCase {
         XCTAssertTrue(longRoute.mustScrubForCloud)
 
         XCTAssertFalse(RoutingPolicy.isSupportedCloudModel("unsupported-model"))
+        XCTAssertTrue(RoutingPolicy.isSupportedCloudModel("gemini-3.5-flash-lite"))
         XCTAssertTrue(RoutingPolicy.isSupportedCloudModel("gemini-3.8-flash"))
+        XCTAssertTrue(RoutingPolicy.isSupportedCloudModel("gemini-4-hydrogen"))
     }
 }

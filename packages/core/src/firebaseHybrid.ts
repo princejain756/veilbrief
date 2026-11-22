@@ -7,6 +7,7 @@ import {
 import {
   CustomProvider,
   initializeAppCheck,
+  ReCaptchaEnterpriseProvider,
   ReCaptchaV3Provider,
   type AppCheck,
 } from "firebase/app-check";
@@ -63,6 +64,7 @@ import {
 export interface FirebaseClientConfig extends FirebaseOptions {
   appCheckDebugToken?: string;
   recaptchaSiteKey?: string;
+  recaptchaProvider?: "enterprise" | "v3";
   isLocalDev?: boolean;
   remoteConfigOverrides?: Partial<HybridRemoteConfig>;
 }
@@ -334,6 +336,7 @@ export async function initVeilBriefFirebase(
   const {
     appCheckDebugToken,
     recaptchaSiteKey,
+    recaptchaProvider = "enterprise",
     isLocalDev,
     remoteConfigOverrides,
     ...firebaseOptions
@@ -361,7 +364,9 @@ export async function initVeilBriefFirebase(
   if (recaptchaSiteKey || (appCheckDebugToken && localDevelopment)) {
     try {
       const provider = recaptchaSiteKey
-        ? new ReCaptchaV3Provider(recaptchaSiteKey)
+        ? recaptchaProvider === "v3"
+          ? new ReCaptchaV3Provider(recaptchaSiteKey)
+          : new ReCaptchaEnterpriseProvider(recaptchaSiteKey)
         : new CustomProvider({
             getToken: async () => ({
               token: appCheckDebugToken ?? "",

@@ -98,9 +98,9 @@ function normalizePlatform(value: unknown): Platform {
 
 function normalizeSource(value: unknown): InferenceSource {
   const text = typeof value === "string" ? value.toLowerCase() : "";
-  return text.includes("cloud") || text.includes("in_cloud")
-    ? "IN_CLOUD"
-    : "ON_DEVICE";
+  if (text.includes("cloud") || text.includes("in_cloud")) return "IN_CLOUD";
+  if (text.includes("device") || text.includes("on_device")) return "ON_DEVICE";
+  return "UNKNOWN";
 }
 
 function normalizeRisk(value: unknown): RiskLevel {

@@ -1,98 +1,123 @@
 "use client";
 
 import {
-  CircleDollarSign,
   Cpu,
+  Fingerprint,
   ShieldCheck,
-  TimerReset,
 } from "lucide-react";
-import {
-  formatCurrency,
-  formatInteger,
-  formatPercent,
-} from "@/lib/format";
+import { formatBytes, formatInteger, shortDigest, sourceLabel } from "@/lib/format";
+import type { AuditView, InferenceMode } from "@/lib/types";
 
 interface KpiStripProps {
-  onDeviceShare: number;
-  piiEntities: number;
-  localLatency: number;
-  cloudLatency: number;
-  cloudSpendSaved: number;
-  totalRuns: number;
-}
-
-interface KpiCardProps {
-  label: string;
-  value: string;
-  secondary?: string;
-  hint: string;
-  icon: React.ReactNode;
-}
-
-function KpiCard({ label, value, secondary, hint, icon }: KpiCardProps) {
-  return (
-    <div className="app-card min-h-[7rem] p-3.5 sm:p-4">
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <span className="type-kpi-label text-[var(--text-muted)]">{label}</span>
-        <span className="text-[var(--text-faint)]">{icon}</span>
-      </div>
-      <div className="flex items-baseline gap-2">
-        <span className="numeral type-kpi-value text-[var(--text-ink)]">
-          {value}
-        </span>
-        {secondary && (
-          <span className="numeral text-[13px] font-[560] text-[var(--text-muted)]">
-            {secondary}
-          </span>
-        )}
-      </div>
-      <div className="type-meta mt-1 text-[var(--text-faint)]">{hint}</div>
-    </div>
-  );
+  preflightCount: number;
+  preflightCategories: string[];
+  mode: InferenceMode;
+  forcedOffline: boolean;
+  targetCloudModel: string;
+  audit: AuditView | null;
 }
 
 export function KpiStrip({
-  onDeviceShare,
-  piiEntities,
-  localLatency,
-  cloudLatency,
-  cloudSpendSaved,
-  totalRuns,
+  preflightCount,
+  preflightCategories,
+  mode,
+  forcedOffline,
+  targetCloudModel,
+  audit,
 }: KpiStripProps) {
+  const stage1Count = audit ? audit.payload.tokens.length : preflightCount;
+  const stage1Hint = audit
+    ? `${audit.payload.contextualStageNote}`
+    : preflightCategories.length > 0
+      ? `Categories: ${preflightCategories.join(", ")}`
+      : "No structured identifiers detected yet";
+
+  const stage2Value = audit
+    ? sourceLabel(audit.inferenceSource)
+    : forcedOffline || mode === "local"
+      ? "Local Only"
+      : mode === "cloud"
+        ? "Scrubbed Cloud"
+        : "Auto Hybrid";
+  const stage2Secondary = audit
+    ? `${audit.modelName} (${formatInteger(audit.latencyMs)} ms)`
+    : forcedOffline || mode === "local"
+      ? "Zero cloud transmission"
+      : `Cloud target: ${targetCloudModel}`;
+
+  const stage3Value = audit
+    ? audit.payload.rawPiiBytesSent === 0
+      ? "0 raw PII bytes"
+      : `${formatBytes(audit.payload.rawPiiBytesSent)} leaked`
+    : "Preflight Active";
+
+  const stage3Secondary = audit
+    ? audit.payload.wirePayloadSha256
+      ? `${shortDigest(audit.payload.wirePayloadSha256)} (${formatBytes(audit.payload.wireBytesSent)})`
+      : "0 B sent on network"
+    : "Independent canary audit runs before send";
+
   return (
     <section
-      aria-label="Workbench metrics"
-      className="grid grid-cols-2 gap-3 xl:grid-cols-4"
+      aria-label="Three-stage privacy pipeline"
+      className="grid grid-cols-1 gap-3 md:grid-cols-3"
     >
-      <KpiCard
-        label="On-Device Share"
-        value={formatPercent(onDeviceShare)}
-        hint={
-          totalRuns
-            ? `${formatInteger(totalRuns)} audit runs this session`
-            : "No audit runs yet"
-        }
-        icon={<Cpu className="h-4 w-4" aria-hidden="true" />}
-      />
-      <KpiCard
-        label="PII Entities Shielded Locally"
-        value={formatInteger(piiEntities)}
-        hint="Exact replacements kept outside cloud prompts"
-        icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />}
-      />
-      <KpiCard
-        label="Avg Latency"
-        value={formatInteger(localLatency)}
-        secondary={`ms local / ${formatInteger(cloudLatency)} ms cloud`}
-        hint="Measured across completed audits"
-        icon={<TimerReset className="h-4 w-4" aria-hidden="true" />}
-      />
-      <KpiCard
-        label="Est. Cloud Spend Saved"
-        value={formatCurrency(cloudSpendSaved)}
-        hint="Approximate model spend avoided by local runs"
-        icon={<CircleDollarSign className="h-4 w-4" aria-hidden="true" />}
-      />
+      <div className="app-card p-3.5 sm:p-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="type-kpi-label text-[var(--text-muted)]">
+            Stage 1: Local PII Shield
+          </span>
+          <ShieldCheck
+            className="h-4 w-4 text-[var(--status-emerald)]"
+            aria-hidden="true"
+          />
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className="numeral text-[22px] font-[650] leading-7 text-[var(--text-ink)]">
+            {formatInteger(stage1Count)} protected tokens
+          </span>
+        </div>
+        <div className="type-meta mt-1 truncate text-[var(--text-faint)]">
+          {stage1Hint}
+        </div>
+      </div>
+
+      <div className="app-card p-3.5 sm:p-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="type-kpi-label text-[var(--text-muted)]">
+            Stage 2: Hybrid Inference Route
+          </span>
+          <Cpu className="h-4 w-4 text-[var(--status-cobalt)]" aria-hidden="true" />
+        </div>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="text-[22px] font-[650] leading-7 text-[var(--text-ink)]">
+            {stage2Value}
+          </span>
+        </div>
+        <div className="numeral type-meta mt-1 truncate text-[var(--text-faint)]">
+          {stage2Secondary}
+        </div>
+      </div>
+
+      <div className="app-card p-3.5 sm:p-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="type-kpi-label text-[var(--text-muted)]">
+            Stage 3: Wire Egress Proof
+          </span>
+          <Fingerprint
+            className="h-4 w-4 text-[var(--status-emerald)]"
+            aria-hidden="true"
+          />
+        </div>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="numeral text-[22px] font-[650] leading-7 text-[var(--text-ink)]">
+            {stage3Value}
+          </span>
+        </div>
+        <div className="numeral font-code type-meta mt-1 truncate text-[var(--text-faint)]">
+          {stage3Secondary}
+        </div>
+      </div>
     </section>
   );
 }

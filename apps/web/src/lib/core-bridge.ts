@@ -3,6 +3,7 @@
 import {
   DEFAULT_REMOTE_CONFIG,
   isSupportedCloudModel,
+  ON_DEVICE_MODEL_LABEL,
   probeOnDeviceAvailability,
   runHybridAudit,
   shieldPii,
@@ -25,7 +26,7 @@ import type {
 interface LanguageModelMonitor extends EventTarget {
   addEventListener(
     type: "downloadprogress",
-    listener: (event: Event & { loaded?: number; total?: number }) => void
+    listener: (event: Event & { loaded?: number; total?: number }) => void,
   ): void;
 }
 
@@ -34,6 +35,10 @@ interface LanguageModelApi {
   create?: (options?: {
     monitor?: (monitor: LanguageModelMonitor) => void;
     systemPrompt?: string;
+    initialPrompts?: Array<{
+      role: "system" | "user" | "assistant";
+      content: Array<{ type: "text"; value: string }>;
+    }>;
   }) => Promise<{ destroy?: () => void | Promise<void> }>;
 }
 
@@ -50,10 +55,6 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function asNumber(value: unknown): number | undefined {
@@ -127,7 +128,7 @@ export function getDefaultRemoteParams(): RemoteParam[] {
 }
 
 export function configFromRemoteParams(
-  params: RemoteParam[]
+  params: RemoteParam[],
 ): HybridRemoteConfig {
   const byKey = new Map(params.map((param) => [param.key, param]));
   const stringValue = (key: string, fallback: string) => {
@@ -142,7 +143,7 @@ export function configFromRemoteParams(
 
   const rawMode = stringValue(
     "default_inference_mode",
-    DEFAULT_REMOTE_CONFIG.default_inference_mode
+    DEFAULT_REMOTE_CONFIG.default_inference_mode,
   );
   const mode =
     rawMode === "only_on_device" ||
@@ -162,12 +163,12 @@ export function configFromRemoteParams(
     default_inference_mode: mode,
     max_on_device_chars: numberValue(
       "max_on_device_chars",
-      DEFAULT_REMOTE_CONFIG.max_on_device_chars
+      DEFAULT_REMOTE_CONFIG.max_on_device_chars,
     ),
     enforce_local_pii_shield:
       stringValue(
         "enforce_local_pii_shield",
-        String(DEFAULT_REMOTE_CONFIG.enforce_local_pii_shield)
+        String(DEFAULT_REMOTE_CONFIG.enforce_local_pii_shield),
       ) === "true",
   };
 }
@@ -187,13 +188,13 @@ export async function probeDevice(): Promise<DeviceState> {
       status: "unavailable",
       progress: 0,
       message:
-        "Chrome LanguageModel is not available here. Open this page in a desktop Chrome build with Gemini Nano enabled.",
+        "Cloud shield active. Enable Chrome Prompt API flags if you want local Gemini Nano weights.",
     };
   }
 
   try {
     const availability = await Promise.resolve(
-      api.availability?.() ?? probeOnDeviceAvailability()
+      api.availability?.() ?? probeOnDeviceAvailability(),
     );
 
     if (availability === "unavailable") {
@@ -201,7 +202,7 @@ export async function probeDevice(): Promise<DeviceState> {
         status: "unavailable",
         progress: 0,
         message:
-          "Gemini Nano is unavailable on this device. Check Chrome built-in AI settings and hardware requirements.",
+          "Chrome Built-in AI unavailable on this profile. Cloud Shield executes with local PII redaction.",
       };
     }
 
@@ -210,7 +211,7 @@ export async function probeDevice(): Promise<DeviceState> {
         status: "available",
         progress: 0,
         message:
-          "Gemini Nano is downloading. Use Initialize On-Device Model to attach the download monitor.",
+          "Gemini Nano weights are downloading. Prepare On-Device Model to attach progress.",
       };
     }
 
@@ -219,15 +220,15 @@ export async function probeDevice(): Promise<DeviceState> {
         status: "available",
         progress: 0,
         message:
-          "Gemini Nano can be downloaded. Initialize it with a direct click.",
+          "Gemini Nano weights are ready to download with a single click.",
       };
     }
 
     if (availability === "available") {
       return {
-        status: "available",
+        status: "ready",
         progress: 1,
-        message: "Chrome Gemini Nano 4 is available.",
+        message: `${ON_DEVICE_MODEL_LABEL} is ready offline and online.`,
       };
     }
 
@@ -235,7 +236,7 @@ export async function probeDevice(): Promise<DeviceState> {
       status: "available",
       progress: 0,
       message:
-        "Chrome exposes the LanguageModel API. Use Initialize On-Device Model to verify it.",
+        "Chrome exposes LanguageModel. Prepare On-Device Model to verify readiness.",
     };
   } catch (error) {
     return {
@@ -250,7 +251,7 @@ export async function probeDevice(): Promise<DeviceState> {
 }
 
 export async function prepareDevice(
-  onProgress: (progress: number) => void
+  onProgress: (progress: number) => void,
 ): Promise<DeviceState> {
   const api = languageModelApi();
   if (!api?.create) {
@@ -258,7 +259,7 @@ export async function prepareDevice(
       status: "unavailable",
       progress: 0,
       message:
-        "LanguageModel.create is not exposed. Use a current desktop Chrome build with built-in AI enabled.",
+        "LanguageModel API is unavailable in this Chrome profile. See the On-Device Setup guide or continue in Cloud Shield mode.",
     };
   }
 
@@ -271,15 +272,25 @@ export async function prepareDevice(
             onProgress(normalizeProgress(event));
           });
         },
-        systemPrompt:
-          "You help inspect private business documents. Never invent facts or personal data.",
+        initialPrompts: [
+          {
+            role: "system",
+            content: [
+              {
+                type: "text",
+                value:
+                  "You inspect private contracts locally. Preserve all protected tokens and never invent data.",
+              },
+            ],
+          },
+        ],
       });
     }
     onProgress(1);
     return {
       status: "ready",
       progress: 1,
-      message: "Chrome Gemini Nano 4 is ready for private inference.",
+      message: `${ON_DEVICE_MODEL_LABEL} is active for local inference.`,
     };
   } catch (error) {
     onDeviceSession = null;
@@ -297,11 +308,13 @@ export async function prepareDevice(
 function requestedMode(mode: InferenceMode) {
   if (mode === "local") return "only_on_device" as const;
   if (mode === "cloud") return "only_in_cloud" as const;
-  return "prefer_on_device" as const;
+  return undefined;
 }
 
 function normalizeSource(value: string): InferenceSource {
-  return value === "in_cloud" ? "IN_CLOUD" : "ON_DEVICE";
+  if (value === "on_device") return "ON_DEVICE";
+  if (value === "in_cloud") return "IN_CLOUD";
+  return "UNKNOWN";
 }
 
 function normalizeRisk(value: string | RiskLevel): RiskLevel {
@@ -311,7 +324,12 @@ function normalizeRisk(value: string | RiskLevel): RiskLevel {
 }
 
 function tokenRows(
-  entities: Array<{ token: string; category: string; original: string }>
+  entities: Array<{
+    token: string;
+    category: string;
+    original: string;
+    source?: "deterministic" | "on_device_context";
+  }>,
 ): PiiToken[] {
   const seen = new Map<string, PiiToken>();
   for (const entity of entities) {
@@ -320,23 +338,11 @@ function tokenRows(
         token: entity.token,
         original: entity.original,
         type: entity.category,
+        source: entity.source ?? "deterministic",
       });
     }
   }
   return Array.from(seen.values());
-}
-
-function leakedPiiBytes(
-  scrubbedText: string,
-  tokens: PiiToken[]
-): number {
-  let bytes = 0;
-  for (const token of tokens) {
-    if (scrubbedText.includes(token.original)) {
-      bytes += new TextEncoder().encode(token.original).length;
-    }
-  }
-  return bytes;
 }
 
 function dataUrlImage(value: string | undefined) {
@@ -356,16 +362,20 @@ export interface AuditRequest {
   imageDataUrl?: string;
   mode: InferenceMode;
   forceOffline: boolean;
+  maskAmounts: boolean;
   config: HybridRemoteConfig;
   ai: AI;
   auth?: Auth;
   firestore?: Firestore;
   onProgress?: (label: string, progress: number) => void;
+  onStreamChunk?: (partialText: string) => void;
 }
 
-export async function executeAudit(request: AuditRequest): Promise<AuditView & { persistenceFailed: boolean }> {
+export async function executeAudit(
+  request: AuditRequest,
+): Promise<AuditView & { persistenceFailed: boolean }> {
   if (!request.text.trim() && !request.imageDataUrl) {
-    throw new Error("Add document text or an image before starting an audit.");
+    throw new Error("Add contract text, a PDF/DOCX file, or image before auditing.");
   }
 
   const image = dataUrlImage(request.imageDataUrl);
@@ -373,12 +383,12 @@ export async function executeAudit(request: AuditRequest): Promise<AuditView & {
 
   if (image && routeMode === "only_in_cloud") {
     throw new Error(
-      "Image pixels cannot be scrubbed reliably. Keep image evidence on-device or remove the image before a cloud audit."
+      "Image pixels cannot be scrubbed reliably. Keep image evidence on-device or remove the image before a cloud audit.",
     );
   }
   if (image) routeMode = "only_on_device";
 
-  request.onProgress?.("Selecting the safest execution route", 0.12);
+  request.onProgress?.("Stage 1A: Deterministic PII shield & policy route", 0.14);
 
   const result = await runHybridAudit({
     platform: "web",
@@ -390,28 +400,46 @@ export async function executeAudit(request: AuditRequest): Promise<AuditView & {
     image,
     isOffline: request.forceOffline,
     requestedMode: routeMode,
-    maskAmounts: false,
+    maskAmounts: request.maskAmounts,
+    enableContextualOnDeviceScrub: true,
     persist: Boolean(request.auth?.currentUser && request.firestore),
+    onStageUpdate: (stage, detail) => {
+      if (stage === "Stage 1B") {
+        request.onProgress?.(`${stage}: ${detail}`, 0.34);
+      } else if (stage === "Stage 2") {
+        request.onProgress?.(`${stage}: ${detail}`, 0.58);
+      }
+    },
     onDeviceProgress: (value: number) => {
       request.onProgress?.(
-        "Preparing on-device Gemini Nano 4",
-        0.18 + normalizeProgress(value) * 0.56
+        `Preparing ${ON_DEVICE_MODEL_LABEL}`,
+        0.22 + normalizeProgress(value) * 0.45,
       );
     },
+    onStreamChunk: request.onStreamChunk,
   });
 
-  request.onProgress?.("Verifying the zero-egress payload", 0.82);
+  request.onProgress?.("Verifying wire SHA-256 & rehydrating redlines", 0.94);
+
   const inferenceSource = normalizeSource(result.inferenceSource);
   const tokens = tokenRows(result.shield.entities);
-  const rawPiiBytesSent = leakedPiiBytes(result.shield.scrubbed, tokens);
+  const contextualStageNote = result.contextualStage.source === "on_device"
+    ? `${result.contextualStage.entitiesAdded} contextual phrases scrubbed locally (${result.contextualStage.latencyMs.toLocaleString("en-US")} ms)`
+    : result.contextualStage.reason ?? "Contextual Nano pass skipped";
+
   const payload: AuditPayload = {
     originalText: request.text,
     scrubbedText: result.shield.scrubbed,
+    wirePayloadPreview: result.wirePayloadPreview || result.shield.scrubbed,
+    wireHost: result.egressAudit.wireHost,
+    wireBytesSent: result.egressAudit.wireBytesSent,
+    wirePayloadSha256: result.egressAudit.wirePayloadSha256,
+    verifiedZeroRawPii: result.egressAudit.verifiedZeroRawPii,
     tokens,
-    rawPiiBytesSent,
+    rawPiiBytesSent: result.egressAudit.rawPiiBytesLeaked,
+    contextualEntitiesAdded: result.contextualStage.entitiesAdded,
+    contextualStageNote,
   };
-
-  request.onProgress?.("Preparing locally rehydrated redlines", 0.96);
 
   return {
     id:
@@ -427,11 +455,12 @@ export async function executeAudit(request: AuditRequest): Promise<AuditView & {
     riskLevel: normalizeRisk(result.audit.riskLevel),
     executiveSummary:
       result.audit.summary ||
-      "The audit completed. Review each flagged item and the suggested language before applying edits.",
+      "The audit completed. Review each flagged item and accept or edit suggested counter-clauses.",
     redFlags: result.audit.redFlags.map((flag) => ({
       title: flag.title,
       detail: flag.explanation,
       severity: normalizeRisk(flag.severity),
+      clause: flag.clause,
     })),
     recommendedEdits: result.audit.recommendedEdits.map((edit) => ({
       title: edit.title,
@@ -442,12 +471,18 @@ export async function executeAudit(request: AuditRequest): Promise<AuditView & {
     payload,
     mode: request.mode,
     platform: "web",
+    streamed: result.streamed,
+    contextualStageSource: result.contextualStage.source,
   };
 }
 
-export function estimatePiiEntities(text: string): number {
-  if (!text.trim()) return 0;
-  return shieldPii(text).entities.length;
+export function computePreflightShield(
+  text: string,
+  maskAmounts = true,
+): { count: number; categories: string[] } {
+  if (!text.trim()) return { count: 0, categories: [] };
+  const shield = shieldPii(text, { maskAmounts });
+  const uniqueTokens = new Set(shield.entities.map((e) => e.token));
+  const categories = [...new Set(shield.entities.map((e) => e.category))];
+  return { count: uniqueTokens.size, categories };
 }
-
-export { asString as readString };

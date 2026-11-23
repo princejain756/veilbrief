@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "VeilBrief Hybrid AI Shield",
-  "description": "Audit selected text with local PII redaction before any model call.",
-  "version": "0.1.0",
-  "permissions": ["sidePanel", "contextMenus", "activeTab", "storage"],
+  "description": "Shield PII locally, audit contracts offline or in cloud, verify wire SHA-256, and apply redlines inline.",
+  "version": "0.2.0",
+  "permissions": ["sidePanel", "contextMenus", "activeTab", "storage", "scripting"],
+  "host_permissions": ["https://veilbrief.prince.sh/*", "http://localhost/*"],
   "side_panel": {
     "default_path": "sidepanel.html"
   },

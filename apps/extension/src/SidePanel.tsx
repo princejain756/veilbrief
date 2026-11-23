@@ -1,21 +1,28 @@
-import { runHybridAudit } from "@veilbrief/core";
+import {
+  ON_DEVICE_MODEL_LABEL,
+  probeOnDeviceAvailability,
+  runHybridAudit,
+} from "@veilbrief/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
   ChevronRight,
   Cloud,
+  Copy,
   Cpu,
   FileText,
   Fingerprint,
+  Highlighter,
   Loader2,
   Lock,
   Moon,
+  Replace,
   RotateCcw,
   ScanText,
   ShieldCheck,
   Sparkles,
-  Sun
+  Sun,
 } from "lucide-react";
 import {
   auditPreview,
@@ -24,12 +31,14 @@ import {
   shieldText,
   type AuditPreview,
   type ExecutionRoute,
-  type ShieldPreview
+  type ShieldPreview,
 } from "./core";
+import { ensureCloudSession, firebaseConfigured } from "./firebase";
 import {
-  ensureCloudSession,
-  firebaseConfigured
-} from "./firebase";
+  applyRedlineOnActiveTab,
+  captureActiveTabSelection,
+  highlightClauseOnActiveTab,
+} from "./pageActions";
 
 type Theme = "light" | "dark";
 type ModelState = "idle" | "preparing" | "ready" | "unsupported" | "error";
@@ -38,9 +47,10 @@ type SaveState = "idle" | "saving" | "saved" | "local" | "error";
 
 const SAMPLE_MSA = `MASTER SERVICES AGREEMENT
 
-This Master Services Agreement is entered into by Northstar Labs, Inc., a Delaware corporation, and Meridian Works LLC. Notices for the customer go to Priya Shah at priya.shah@northstar-labs.com, +1 (415) 555-0184, 42 Market Street, San Francisco, CA 94105.
+This Master Services Agreement is entered into by Cobalt Harbor Consulting LLC and its contractor. Contractor: Arjun Mehta, Email: arjun.mehta@example.com, Phone: (415) 555-0142, Fee: $24,000.
 
-The supplier will deliver the implementation plan within 30 calendar days. Either party may terminate for material breach after 15 calendar days written notice. The customer will pay undisputed invoices within 45 calendar days.`;
+2. FEES AND PAYMENT
+Client shall pay approved invoices within ninety days after receipt. Contractor assigns all prior and future inventions without limitation and indemnifies Client without any liability cap.`;
 
 const REDACTION_TOKEN =
   /(\[[A-Z][A-Z0-9_ -]*\d+\]|<<[^>]+>>|<[^>\s]+(?: [^>]+)?>)/g;
@@ -80,7 +90,7 @@ export default function SidePanel() {
   const [theme, setTheme] = useState<Theme>(() =>
     window.matchMedia("(prefers-color-scheme: dark)").matches
       ? "dark"
-      : "light"
+      : "light",
   );
   const [selectionText, setSelectionText] = useState("");
   const [sourceLabel, setSourceLabel] = useState("No selection");
@@ -90,14 +100,15 @@ export default function SidePanel() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState("");
   const [modelState, setModelState] = useState<ModelState>("idle");
-  const [modelMessage, setModelMessage] = useState("Not initialized");
+  const [modelMessage, setModelMessage] = useState("Cloud fallback active");
   const [modelProgress, setModelProgress] = useState(0);
   const [audit, setAudit] = useState<AuditPreview | null>(null);
-  const [rehydratedCount, setRehydratedCount] = useState(0);
   const [isAuditing, setIsAuditing] = useState(false);
   const [auditError, setAuditError] = useState("");
+  const [pageStatus, setPageStatus] = useState("");
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [cloudState, setCloudState] = useState<CloudState>(
-    firebaseConfigured() ? "connecting" : "local"
+    firebaseConfigured() ? "connecting" : "local",
   );
   const [cloudUid, setCloudUid] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -106,8 +117,25 @@ export default function SidePanel() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  useEffect(() => {
+    let alive = true;
+    void probeOnDeviceAvailability().then((status) => {
+      if (!alive) return;
+      if (status === "available") {
+        setModelState("ready");
+        setModelMessage("Ready for on-device inference");
+      } else if (status === "downloadable" || status === "downloading") {
+        setModelState("idle");
+        setModelMessage("Click Prepare Nano to enable local weights");
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const runShield = useCallback(
-    async (text: string, _label: string): Promise<ShieldPreview | null> => {
+    async (text: string): Promise<ShieldPreview | null> => {
       if (!text.trim()) {
         setScanError("No selection loaded.");
         return null;
@@ -117,7 +145,7 @@ export default function SidePanel() {
       setScanError("");
       setAudit(null);
       setAuditError("");
-      setRehydratedCount(0);
+      setPageStatus("");
       setSaveState("idle");
 
       try {
@@ -129,40 +157,42 @@ export default function SidePanel() {
         return preview;
       } catch (error) {
         setScanError(
-          error instanceof Error ? error.message : "Local shield failed."
+          error instanceof Error ? error.message : "Local shield failed.",
         );
         return null;
       } finally {
         setIsScanning(false);
       }
     },
-    []
+    [],
   );
 
   useEffect(() => {
     let alive = true;
 
-    const loadPending = (value: unknown) => {
-      if (!alive || typeof value !== "string" || !value.trim()) {
-        return;
-      }
+    const consumePending = (payload: unknown) => {
+      if (!alive || !payload || typeof payload !== "object") return;
+      const record = payload as { text?: unknown };
+      if (typeof record.text !== "string" || !record.text.trim()) return;
 
-      const normalized = value.trim();
+      const normalized = record.text.trim();
       setSelectionText(normalized);
-      setSourceLabel("Current selection");
-      void runShield(normalized, "Current selection");
+      setSourceLabel("Selected from tab");
+      void runShield(normalized);
+      // Clear staged selection immediately from session RAM after loading.
+      void chrome.storage.session?.remove("pendingSelection");
     };
 
-    chrome.storage.local.get(["pendingSelectionText"], (result) => {
-      loadPending(result.pendingSelectionText);
+    chrome.storage.session?.get(["pendingSelection"], (result) => {
+      consumePending(result.pendingSelection);
     });
 
     const onStorageChange = (
       changes: { [key: string]: chrome.storage.StorageChange },
-      areaName: string
+      areaName: string,
     ) => {
-      if (areaName === "local" && changes.pendingSelectionText) {
-        loadPending(changes.pendingSelectionText.newValue);
+      if (areaName === "session" && changes.pendingSelection?.newValue) {
+        consumePending(changes.pendingSelection.newValue);
       }
     };
 
@@ -183,16 +213,12 @@ export default function SidePanel() {
     let alive = true;
     void ensureCloudSession()
       .then((session) => {
-        if (!alive) {
-          return;
-        }
+        if (!alive) return;
         setCloudUid(shortUid(session.uid));
         setCloudState("ready");
       })
       .catch(() => {
-        if (alive) {
-          setCloudState("error");
-        }
+        if (alive) setCloudState("error");
       });
 
     return () => {
@@ -200,14 +226,22 @@ export default function SidePanel() {
     };
   }, []);
 
-  const handleScanSelection = useCallback(() => {
-    void runShield(selectionText, sourceLabel);
+  const handleScanSelection = useCallback(async () => {
+    const captured = await captureActiveTabSelection();
+    const target = captured || selectionText;
+    if (!target.trim()) {
+      setScanError("Highlight text on the page or load Sample MSA first.");
+      return;
+    }
+    setSelectionText(target);
+    setSourceLabel(captured ? "Active tab selection" : sourceLabel);
+    void runShield(target);
   }, [runShield, selectionText, sourceLabel]);
 
   const handleSample = useCallback(() => {
     setSelectionText(SAMPLE_MSA);
     setSourceLabel("Sample MSA");
-    void runShield(SAMPLE_MSA, "Sample MSA");
+    void runShield(SAMPLE_MSA);
   }, [runShield]);
 
   const handleInitializeModel = useCallback(async () => {
@@ -227,16 +261,20 @@ export default function SidePanel() {
       setCloudUid(shortUid(session.uid));
       setCloudState("ready");
 
-      const result = await prepareLocalModel(session.ai, session.config, (progress) => {
-        setModelProgress(progress);
-        setModelMessage(`Preparing ${Math.round(progress * 100)}%`);
-      });
+      const result = await prepareLocalModel(
+        session.ai,
+        session.config,
+        (progress) => {
+          setModelProgress(progress);
+          setModelMessage(`Preparing ${Math.round(progress * 100)}%`);
+        },
+      );
       setModelState(result.state);
       setModelMessage(result.message);
     } catch (error) {
       setModelState("error");
       setModelMessage(
-        error instanceof Error ? error.message : "Local runtime unavailable"
+        error instanceof Error ? error.message : "Local runtime unavailable",
       );
       setCloudState("error");
     }
@@ -250,13 +288,14 @@ export default function SidePanel() {
 
     setIsAuditing(true);
     setAuditError("");
+    setPageStatus("");
     setSaveState("idle");
 
     try {
       const localShield =
         shield?.sourceText === selectionText
           ? shield
-          : await runShield(selectionText, sourceLabel);
+          : await runShield(selectionText);
 
       if (!localShield) {
         throw new Error("Local shield did not return a result.");
@@ -275,44 +314,39 @@ export default function SidePanel() {
         auth: session.auth,
         firestore: session.firestore,
         config: session.config,
-        isOffline: !navigator.onLine
+        isOffline: !navigator.onLine,
       });
       const preview = auditPreview(result);
       setAudit(preview);
-      setRehydratedCount(
-        result.shield.entities.length > 0 ? preview.counterClauses.length : 0
-      );
       setSaveState(
-        result.persistenceFailed ? "error" : result.persistedAuditId ? "saved" : "local"
+        result.persistenceFailed
+          ? "error"
+          : result.persistedAuditId
+            ? "saved"
+            : "local",
       );
     } catch (error) {
       setAuditError(
-        error instanceof Error ? error.message : "Hybrid audit failed."
+        error instanceof Error ? error.message : "Hybrid audit failed.",
       );
       setCloudState(firebaseConfigured() ? "error" : "local");
     } finally {
       setIsAuditing(false);
     }
-  }, [runShield, selectionText, shield, sourceLabel]);
+  }, [runShield, selectionText, shield]);
 
   const selectionLength = selectionText.trim().length;
   const entityTypes = useMemo(() => {
-    if (!shield) {
-      return [];
-    }
-    return [...new Set(shield.entities.map((entity) => entity.kind))].slice(0, 5);
+    if (!shield) return [];
+    return [...new Set(shield.entities.map((entity) => entity.kind))].slice(0, 6);
   }, [shield]);
 
   const cloudLabel = useMemo(() => {
     if (cloudState === "ready") {
       return cloudUid ? `Anonymous ${cloudUid}` : "Anonymous";
     }
-    if (cloudState === "connecting") {
-      return "Private session";
-    }
-    if (cloudState === "error") {
-      return "Cloud unavailable";
-    }
+    if (cloudState === "connecting") return "Private session";
+    if (cloudState === "error") return "Cloud unavailable";
     return "Local mode";
   }, [cloudState, cloudUid]);
 
@@ -346,9 +380,6 @@ export default function SidePanel() {
             aria-label={
               theme === "light" ? "Use dark appearance" : "Use light appearance"
             }
-            title={
-              theme === "light" ? "Use dark appearance" : "Use light appearance"
-            }
             onClick={() =>
               setTheme((current) => (current === "light" ? "dark" : "light"))
             }
@@ -367,7 +398,7 @@ export default function SidePanel() {
           <div className="section-heading">
             <div>
               <span className="section-kicker">01</span>
-              <h2 id="input-heading">Selected clause</h2>
+              <h2 id="input-heading">Page selection</h2>
             </div>
             <span className="numeral meta-value">
               {selectionLength.toLocaleString()} chars
@@ -378,7 +409,7 @@ export default function SidePanel() {
             <button
               type="button"
               className="button primary"
-              onClick={handleScanSelection}
+              onClick={() => void handleScanSelection()}
               disabled={isScanning}
             >
               {isScanning ? (
@@ -386,7 +417,7 @@ export default function SidePanel() {
               ) : (
                 <ScanText aria-hidden="true" />
               )}
-              Scan Current Selection
+              Scan Page Selection
             </button>
             <button
               type="button"
@@ -448,7 +479,7 @@ export default function SidePanel() {
             </div>
             <span className="local-label">
               <Fingerprint aria-hidden="true" />
-              local
+              session RAM only
             </span>
           </div>
 
@@ -488,7 +519,7 @@ export default function SidePanel() {
               <Cpu aria-hidden="true" />
             </span>
             <div>
-              <h2 id="model-heading">Gemini Nano 4</h2>
+              <h2 id="model-heading">{ON_DEVICE_MODEL_LABEL}</h2>
               <p className={`model-status ${modelTone}`}>{modelMessage}</p>
             </div>
           </div>
@@ -510,7 +541,7 @@ export default function SidePanel() {
             ) : (
               <Sparkles aria-hidden="true" />
             )}
-            Initialize Gemini Nano 4
+            Prepare Nano
           </button>
         </section>
 
@@ -518,7 +549,7 @@ export default function SidePanel() {
           <div className="section-heading audit-heading">
             <div>
               <span className="section-kicker">03</span>
-              <h2 id="audit-heading">Hybrid audit</h2>
+              <h2 id="audit-heading">Hybrid audit & inline redline</h2>
             </div>
             <RouteBadge route={audit?.route ?? routePreview} />
           </div>
@@ -541,19 +572,28 @@ export default function SidePanel() {
           {audit ? (
             <div className="audit-results" aria-live="polite">
               <div className="provenance-row">
-                <span className="provenance-label">Execution</span>
+                <span className="provenance-label">{audit.modelUsed}</span>
                 <RouteBadge route={audit.route} />
                 <span className={`save-state ${saveState}`}>
                   {saveState === "saving"
-                    ? "Saving anonymously"
+                    ? "Saving"
                     : saveState === "saved"
-                      ? "Saved to Firestore"
+                      ? "Firestore synced"
                       : saveState === "local"
                         ? "Local result"
                         : saveState === "error"
                           ? "Save unavailable"
                           : ""}
                 </span>
+              </div>
+
+              <div className="wire-proof-bar numeral">
+                <span>{audit.rawPiiBytesLeaked} B raw PII leaked</span>
+                {audit.wirePayloadSha256 ? (
+                  <span>sha256:{audit.wirePayloadSha256.slice(0, 10)}</span>
+                ) : (
+                  <span>0 B wire</span>
+                )}
               </div>
 
               {audit.summary ? (
@@ -586,19 +626,78 @@ export default function SidePanel() {
                   <span>Counter-clauses</span>
                   <span className="rehydrate-label">
                     <Lock aria-hidden="true" />
-                    {rehydratedCount > 0
-                      ? `${rehydratedCount} rehydrated locally`
+                    {audit.rehydratedEntityCount > 0
+                      ? `${audit.rehydratedEntityCount} ${
+                          audit.rehydratedEntityCount === 1 ? "token" : "tokens"
+                        } restored`
                       : "locally rehydrated"}
                   </span>
                 </div>
+
+                {pageStatus ? (
+                  <p className="page-action-status">{pageStatus}</p>
+                ) : null}
+
                 {audit.counterClauses.length > 0 ? (
                   <ol className="finding-list clauses">
                     {audit.counterClauses.map((clause, index) => (
-                      <li key={`${index}-${clause}`}>
-                        <span className="finding-index numeral">
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
-                        <span>{clause}</span>
+                      <li key={`${index}-${clause.title}`} className="clause-card">
+                        <div className="clause-title">
+                          {String(index + 1).padStart(2, "0")}. {clause.title}
+                        </div>
+                        {clause.currentText ? (
+                          <div className="clause-old">- {clause.currentText}</div>
+                        ) : null}
+                        <div className="clause-new">+ {clause.suggestedText}</div>
+                        <div className="clause-actions">
+                          {clause.currentText ? (
+                            <>
+                              <button
+                                type="button"
+                                className="button compact"
+                                onClick={() =>
+                                  void highlightClauseOnActiveTab(
+                                    clause.currentText,
+                                  ).then((res) => setPageStatus(res.message))
+                                }
+                              >
+                                <Highlighter aria-hidden="true" />
+                                Highlight
+                              </button>
+                              <button
+                                type="button"
+                                className="button compact"
+                                onClick={() =>
+                                  void applyRedlineOnActiveTab(
+                                    clause.currentText,
+                                    clause.suggestedText,
+                                  ).then((res) => setPageStatus(res.message))
+                                }
+                              >
+                                <Replace aria-hidden="true" />
+                                Apply on Page
+                              </button>
+                            </>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="button compact"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(
+                                clause.suggestedText,
+                              );
+                              setCopiedIdx(index);
+                              window.setTimeout(() => setCopiedIdx(null), 1500);
+                            }}
+                          >
+                            {copiedIdx === index ? (
+                              <Check aria-hidden="true" />
+                            ) : (
+                              <Copy aria-hidden="true" />
+                            )}
+                            {copiedIdx === index ? "Copied" : "Copy"}
+                          </button>
+                        </div>
                       </li>
                     ))}
                   </ol>
@@ -621,9 +720,9 @@ export default function SidePanel() {
       <footer>
         <span>
           <ShieldCheck aria-hidden="true" />
-          Redact before egress
+          Zero persistent PII
         </span>
-        <span className="numeral">MV3 / LOCAL FIRST</span>
+        <span className="numeral">MV3 / INLINE REDLINE</span>
       </footer>
     </div>
   );

@@ -8,7 +8,7 @@ struct ContentView: View {
     @State private var inputText: String = SampleLibrary.all.first?.text ?? ""
     @State private var selectedMode: InferenceModePolicy = .preferOnDevice
     @State private var isOfflineMode: Bool = false
-    @State private var maskAmounts: Bool = false
+    @State private var maskAmounts: Bool = true
     @State private var showRedactedView: Bool = true
     @State private var isRunning: Bool = false
     @State private var errorMessage: String? = nil
@@ -46,6 +46,14 @@ struct ContentView: View {
                 .padding(16)
             }
             .navigationTitle("VeilBrief")
+            .onChange(of: inputText) { _, _ in
+                lastResult = nil
+                errorMessage = nil
+            }
+            .onChange(of: maskAmounts) { _, _ in
+                lastResult = nil
+                errorMessage = nil
+            }
             .task {
                 auditHistory = await HybridInferenceEngine.fetchRecentAudits()
             }
@@ -214,6 +222,40 @@ struct ContentView: View {
                 .padding(10)
                 .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
             }
+
+            if !result.output.recommendedEdits.isEmpty {
+                Divider()
+                Text("Recommended Redlines (\(result.output.recommendedEdits.count))")
+                    .font(.subheadline.bold())
+                ForEach(result.output.recommendedEdits) { edit in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(edit.title)
+                                .font(.caption.bold())
+                            Spacer()
+                            Button("Copy Edit") {
+                                copyToPasteboard(edit.suggestedText)
+                            }
+                            .font(.caption2)
+                        }
+                        if !edit.currentText.isEmpty {
+                            Text("- \(edit.currentText)")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                        Text("+ \(edit.suggestedText)")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                        if !edit.rationale.isEmpty {
+                            Text(edit.rationale)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(10)
+                    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
+                }
+            }
         }
         .padding(12)
         .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
@@ -286,6 +328,15 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func copyToPasteboard(_ value: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        #elseif os(iOS)
+        UIPasteboard.general.string = value
+        #endif
     }
 
     private func runAudit() async {

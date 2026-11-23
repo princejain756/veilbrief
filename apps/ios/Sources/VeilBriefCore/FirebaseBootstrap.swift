@@ -39,6 +39,10 @@ public final class FirebaseBootstrap: ObservableObject {
 
             #if DEBUG
             AppCheck.setAppCheckProviderFactory(AppCheckDebugProviderFactory())
+            #elseif os(iOS)
+            AppCheck.setAppCheckProviderFactory(AppAttestProviderFactory())
+            #elseif os(macOS)
+            AppCheck.setAppCheckProviderFactory(DeviceCheckProviderFactory())
             #endif
             FirebaseApp.configure(options: options)
         }

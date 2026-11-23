@@ -1,13 +1,13 @@
 export type InferenceMode = "auto" | "local" | "cloud";
-export type InferenceSource = "ON_DEVICE" | "IN_CLOUD";
+export type InferenceSource = "ON_DEVICE" | "IN_CLOUD" | "UNKNOWN";
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type { AuditPlatform as Platform } from "@veilbrief/core";
 import type { AuditPlatform as Platform } from "@veilbrief/core";
 
 export type ScenarioId =
   | "freelance-msa"
-  | "medical-invoice"
-  | "enterprise-dpa";
+  | "enterprise-dpa"
+  | "medical-invoice";
 
 export interface Scenario {
   id: ScenarioId;
@@ -23,6 +23,7 @@ export interface PiiToken {
   token: string;
   original: string;
   type: string;
+  source?: "deterministic" | "on_device_context";
 }
 
 export interface RedFlag {
@@ -39,11 +40,23 @@ export interface RecommendedEdit {
   rationale?: string;
 }
 
+export interface RedlineDecision {
+  status: "pending" | "accepted" | "rejected";
+  customText?: string;
+}
+
 export interface AuditPayload {
   originalText: string;
   scrubbedText: string;
+  wirePayloadPreview: string;
+  wireHost: string | null;
+  wireBytesSent: number;
+  wirePayloadSha256: string | null;
+  verifiedZeroRawPii: boolean;
   tokens: PiiToken[];
   rawPiiBytesSent: number;
+  contextualEntitiesAdded: number;
+  contextualStageNote: string;
 }
 
 export interface AuditView {
@@ -59,6 +72,8 @@ export interface AuditView {
   payload: AuditPayload;
   mode: InferenceMode;
   platform: Platform;
+  streamed: boolean;
+  contextualStageSource: "on_device" | "skipped";
 }
 
 export interface RemoteParam {
@@ -101,4 +116,13 @@ export interface FirebaseState {
   remoteParams: RemoteParam[];
   feed: AuditFeedItem[];
   remoteSource: "defaults" | "live";
+}
+
+export interface SessionStats {
+  onDeviceShare: number;
+  piiEntities: number;
+  localLatency: number;
+  cloudLatency: number;
+  cloudSpendSaved: number;
+  totalRuns: number;
 }

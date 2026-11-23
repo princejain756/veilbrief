@@ -25,6 +25,44 @@ final class PIIShieldTests: XCTestCase {
         XCTAssertEqual(restored, source)
     }
 
+    func testDoesNotMisclassifyLegalClausesAsPersonNamesAndPropagatesRepeatedPerson() throws {
+        let contract = """
+        Contractor: Arjun Mehta
+        2. FEES AND PAYMENT
+        Client shall pay approved invoices within ninety days after receipt.
+        Contractor will deliver work and Arjun Mehta retains background tooling.
+        Attn: Privacy Operations
+        """
+
+        let shielded = PIIShield.shield(contract, options: ShieldOptions(maskAmounts: true))
+        XCTAssertTrue(shielded.scrubbed.contains("Client shall pay approved invoices"))
+        XCTAssertTrue(shielded.scrubbed.contains("Contractor will deliver work"))
+        XCTAssertTrue(shielded.scrubbed.contains("Attn: Privacy Operations"))
+        XCTAssertFalse(shielded.scrubbed.contains("Arjun Mehta"))
+        XCTAssertNoThrow(try PIIShield.assertNoRawPii(scrubbed: shielded.scrubbed, entities: shielded.entities))
+        XCTAssertEqual(PIIShield.rehydrate(shielded.scrubbed, tokenMap: shielded.tokenMap), contract)
+    }
+
+    func testSupportsPanIbanMod97IndianAddressAndApostropheNames() {
+        let source = """
+        Signatory: Anne-Marie O'Connor
+        PAN: ABCDE1234F
+        NonPAN: abcde1234f
+        IBAN: DE89370400440532013000
+        BadIBAN: DE00370400440532013000
+        Mailing address: 42, 3rd Cross, J.P. Nagar 4th Phase, Bengaluru 560078
+        """
+        let shielded = PIIShield.shield(source)
+        XCTAssertTrue(shielded.scrubbed.contains("[PERSON_1]"))
+        XCTAssertTrue(shielded.scrubbed.contains("[TAX_ID_1]"))
+        XCTAssertTrue(shielded.scrubbed.contains("abcde1234f"))
+        XCTAssertFalse(shielded.scrubbed.contains("DE89370400440532013000"))
+        XCTAssertTrue(shielded.scrubbed.contains("DE00370400440532013000"))
+        XCTAssertFalse(shielded.scrubbed.contains("Bengaluru 560078"))
+        XCTAssertTrue(PIIShield.passesIbanMod97("DE89370400440532013000"))
+        XCTAssertFalse(PIIShield.passesIbanMod97("DE00370400440532013000"))
+    }
+
     func testPassesLuhnAndReusesIdenticalTokens() {
         XCTAssertTrue(PIIShield.passesLuhn("4111 1111 1111 1111"))
         XCTAssertFalse(PIIShield.passesLuhn("4111 1111 1111 1112"))

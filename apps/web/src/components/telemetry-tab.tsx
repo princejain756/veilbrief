@@ -10,7 +10,9 @@ import {
   Smartphone,
 } from "lucide-react";
 import {
+  formatCurrency,
   formatInteger,
+  formatPercent,
   formatRelativeTime,
   platformLabel,
   riskClass,
@@ -21,6 +23,7 @@ import type {
   InferenceSource,
   Platform,
   RemoteParam,
+  SessionStats,
 } from "@/lib/types";
 
 interface TelemetryTabProps {
@@ -30,6 +33,7 @@ interface TelemetryTabProps {
   feed: AuditFeedItem[];
   uid?: string;
   authReady: boolean;
+  sessionStats: SessionStats;
   onRefresh: () => void;
 }
 
@@ -41,7 +45,9 @@ const platforms: Array<{ id: Platform; label: string; icon: typeof Laptop }> = [
 ];
 
 function sourcePill(source: InferenceSource) {
-  return source === "ON_DEVICE" ? "pill-emerald" : "pill-cobalt";
+  if (source === "ON_DEVICE") return "pill-emerald";
+  if (source === "IN_CLOUD") return "pill-cobalt";
+  return "pill-neutral";
 }
 
 export function TelemetryTab({
@@ -51,11 +57,56 @@ export function TelemetryTab({
   feed,
   uid,
   authReady,
+  sessionStats,
   onRefresh,
 }: TelemetryTabProps) {
   return (
     <div className="space-y-5">
       <section>
+        <div className="mb-2.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Cloud
+              className="h-3.5 w-3.5 text-[var(--text-faint)]"
+              aria-hidden="true"
+            />
+            <span className="type-table-head text-[var(--text-faint)]">
+              Session Hybrid Metrics
+            </span>
+          </div>
+          <span className="numeral type-meta text-[var(--text-faint)]">
+            {formatInteger(sessionStats.totalRuns)}{" "}
+            {sessionStats.totalRuns === 1 ? "completed run" : "completed runs"}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-[6px] border border-[var(--border-line)] bg-[var(--bg-subtle)] p-2.5">
+            <div className="type-meta text-[var(--text-faint)]">On-Device Share</div>
+            <div className="numeral mt-0.5 text-[15px] font-[620] text-[var(--text-ink)]">
+              {formatPercent(sessionStats.onDeviceShare)}
+            </div>
+          </div>
+          <div className="rounded-[6px] border border-[var(--border-line)] bg-[var(--bg-subtle)] p-2.5">
+            <div className="type-meta text-[var(--text-faint)]">Total Masked</div>
+            <div className="numeral mt-0.5 text-[15px] font-[620] text-[var(--text-ink)]">
+              {formatInteger(sessionStats.piiEntities)}
+            </div>
+          </div>
+          <div className="rounded-[6px] border border-[var(--border-line)] bg-[var(--bg-subtle)] p-2.5">
+            <div className="type-meta text-[var(--text-faint)]">Avg Latency</div>
+            <div className="numeral mt-0.5 text-[14px] font-[620] text-[var(--text-ink)]">
+              {formatInteger(sessionStats.localLatency)} / {formatInteger(sessionStats.cloudLatency)} ms
+            </div>
+          </div>
+          <div className="rounded-[6px] border border-[var(--border-line)] bg-[var(--bg-subtle)] p-2.5">
+            <div className="type-meta text-[var(--text-faint)]">Cloud Spend Saved</div>
+            <div className="numeral mt-0.5 text-[15px] font-[620] text-[var(--text-ink)]">
+              {formatCurrency(sessionStats.cloudSpendSaved)}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-[var(--border-line)] pt-4">
         <div className="mb-2.5 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Cloud
@@ -145,11 +196,11 @@ export function TelemetryTab({
           </span>
         </div>
 
-        <div className="mb-3 grid grid-cols-3 gap-2">
+        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {platforms.map((platform) => {
             const Icon = platform.icon;
             const count = feed.filter(
-              (item) => item.platform === platform.id
+              (item) => item.platform === platform.id,
             ).length;
             return (
               <div
@@ -202,7 +253,7 @@ export function TelemetryTab({
                     </span>
                     <span
                       className={`pill type-pill ${riskClass(
-                        item.riskLevel
+                        item.riskLevel,
                       )}`}
                     >
                       {riskLabel(item.riskLevel)}
@@ -231,7 +282,7 @@ export function TelemetryTab({
               No synced audits yet.
             </p>
             <p className="type-meta m-0 mt-0.5 text-[var(--text-faint)]">
-              Web runs will appear here for the extension and iOS clients.
+              Web runs sync anonymized metadata across clients here.
             </p>
           </div>
         )}

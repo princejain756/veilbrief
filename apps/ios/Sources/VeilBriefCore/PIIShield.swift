@@ -6,6 +6,7 @@ public enum PiiCategory: String, Codable, CaseIterable, Hashable, Sendable {
     case taxId = "TAX_ID"
     case account = "ACCOUNT"
     case address = "ADDRESS"
+    case context = "CONTEXT"
     case person = "PERSON"
     case amount = "AMOUNT"
 
@@ -16,6 +17,7 @@ public enum PiiCategory: String, Codable, CaseIterable, Hashable, Sendable {
         case .phone: return 90
         case .account: return 85
         case .address: return 80
+        case .context: return 75
         case .person: return 70
         case .amount: return 60
         }
@@ -112,7 +114,7 @@ public enum PIIShield {
     }
 
     private static let tokenPlaceholderRegex = try! NSRegularExpression(
-        pattern: #"\[(?:EMAIL|PHONE|TAX_ID|ACCOUNT|ADDRESS|PERSON|AMOUNT)_\d+\]"#
+        pattern: #"\[(?:EMAIL|PHONE|TAX_ID|ACCOUNT|ADDRESS|CONTEXT|PERSON|AMOUNT)_\d+\]"#
     )
 
     private static let emailRegex = try! NSRegularExpression(
@@ -121,16 +123,19 @@ public enum PIIShield {
     )
 
     private static let usPhoneRegex = try! NSRegularExpression(
-        pattern: #"(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b"#
+        pattern: #"(?<!\d)(?:\+?1[\s.-]?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}|(?:\(\d{3}\)[\s.-]?|\d{3}[\s.-])\d{3}[\s.-]?\d{4})(?!\d)"#
     )
 
     private static let indianPhoneRegex = try! NSRegularExpression(
-        pattern: #"(?:\+?91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}\b"#
+        pattern: #"(?<!\d)(?:\+?91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}(?!\d)"#
     )
 
-    private static let taxIdRegex = try! NSRegularExpression(
-        pattern: #"\b(?:\d{3}-\d{2}-\d{4}|\d{2}-\d{7}|[A-Z]{5}\d{4}[A-Z])\b"#,
-        options: [.caseInsensitive]
+    private static let usTaxIdRegex = try! NSRegularExpression(
+        pattern: #"\b(?:\d{3}-\d{2}-\d{4}|\d{2}-\d{7})\b"#
+    )
+
+    private static let inPanRegex = try! NSRegularExpression(
+        pattern: #"\b[A-Z]{5}\d{4}[A-Z]\b"#
     )
 
     private static let labeledAccountRegex = try! NSRegularExpression(
@@ -143,8 +148,7 @@ public enum PIIShield {
     )
 
     private static let ibanRegex = try! NSRegularExpression(
-        pattern: #"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"#,
-        options: [.caseInsensitive]
+        pattern: #"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"#
     )
 
     private static let streetAddressRegex = try! NSRegularExpression(
@@ -152,10 +156,38 @@ public enum PIIShield {
         options: [.caseInsensitive]
     )
 
-    private static let personAfterCueRegex = try! NSRegularExpression(
-        pattern: #"\b(?:(?:patient|client|contractor|signatory)(?:\s+name)?|(?:full\s+)?name|attn\.?|attention)\b\s*(?::|#|-)?\s*(?!the\b|of\b|for\b|and\b)([A-Z][A-Za-z'-]+(?:[ '-][A-Z][A-Za-z'-]+){1,3})"#,
+    private static let labeledAddressRegex = try! NSRegularExpression(
+        pattern: #"\b(?:mailing\s+address|street\s+address|registered\s+address|home\s+address|office\s+address|address)\b\s*:\s*([^\n;]{8,140})"#,
         options: [.caseInsensitive]
     )
+
+    private static let addressSignalRegex = try! NSRegularExpression(
+        pattern: #"(?:\d|\b(?:phase|sector|cross|main|nagar|layout|road|rd|street|st|avenue|ave|blvd|lane|drive|floor|block|bengaluru|bangalore|mumbai|delhi|hyderabad|chennai|pune|london|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b)"#,
+        options: [.caseInsensitive]
+    )
+
+    private static let personAfterCueRegex = try! NSRegularExpression(
+        pattern: #"\b(?:(?:patient|client|contractor|consultant|signatory|contact|representative)(?:\s+name)?|(?:full\s+)?name|attn\.?|attention)\b(?:\s*[:#-][ \t]*|\s+(?:is|named)[ \t]+)([^\n,.;()]{2,64})"#,
+        options: [.caseInsensitive]
+    )
+
+    private static let personWordRegex = try! NSRegularExpression(
+        pattern: #"^[A-Z](?:[a-z]*(?:[-'][A-Z]?[a-z]+)+|[a-z]+|\.)$"#
+    )
+
+    private static let personStoplist: Set<String> = [
+        "client", "contractor", "consultant", "company", "party", "parties",
+        "agreement", "services", "invoice", "invoices", "notice", "notices",
+        "payment", "confidential", "indemnification", "section", "schedule",
+        "annex", "privacy", "operations", "shall", "will", "may", "must",
+        "should", "hereby", "pursuant", "delaware", "california", "inc", "llc",
+        "ltd", "corp", "corporation", "technologies", "consulting", "robotics",
+        "systems", "solutions", "clinic", "health", "plan", "security",
+        "support", "billing", "review", "law", "rights", "solely", "responsible",
+        "approved", "within", "medical", "record", "number", "total", "date",
+        "service", "retains", "assigns", "indemnifies", "bears", "unknown",
+        "none", "na",
+    ]
 
     private static let amountRegex = try! NSRegularExpression(
         pattern: #"(?:(?:US\$|USD|INR|Rs\.?|EUR|₹|€|\$)\s?\d(?:[\d., \t]*\d)?(?:\s?(?:USD|INR|EUR))?|\b\d(?:[\d., \t]*\d)?\s?(?:USD|INR|EUR)\b)"#,
@@ -165,20 +197,23 @@ public enum PIIShield {
     public static func shield(_ text: String, options: ShieldOptions = ShieldOptions()) -> ShieldResult {
         var candidates: [Candidate] = []
         candidates.append(contentsOf: collectMatches(in: text, regex: emailRegex, category: .email))
-        candidates.append(contentsOf: collectMatches(in: text, regex: taxIdRegex, category: .taxId))
+        candidates.append(contentsOf: collectMatches(in: text, regex: usTaxIdRegex, category: .taxId))
+        candidates.append(contentsOf: collectMatches(in: text, regex: inPanRegex, category: .taxId))
         candidates.append(contentsOf: collectMatches(in: text, regex: usPhoneRegex, category: .phone))
         candidates.append(contentsOf: collectMatches(in: text, regex: indianPhoneRegex, category: .phone))
-        candidates.append(contentsOf: collectMatches(in: text, regex: labeledAccountRegex, category: .account, captureGroup: 1))
+        candidates.append(contentsOf: collectLabeledAccountMatches(in: text))
         candidates.append(contentsOf: collectCardMatches(in: text))
-        candidates.append(contentsOf: collectMatches(in: text, regex: ibanRegex, category: .account))
+        candidates.append(contentsOf: collectIbanMatches(in: text))
         candidates.append(contentsOf: collectMatches(in: text, regex: streetAddressRegex, category: .address))
-        candidates.append(contentsOf: collectMatches(in: text, regex: personAfterCueRegex, category: .person, captureGroup: 1))
+        candidates.append(contentsOf: collectLabeledAddressMatches(in: text))
+        candidates.append(contentsOf: collectPersonMatches(in: text))
 
         if options.maskAmounts {
             candidates.append(contentsOf: collectMatches(in: text, regex: amountRegex, category: .amount))
         }
 
-        let selected = resolveOverlaps(candidates)
+        let withPropagated = propagateDetectedCandidates(in: text, initial: candidates)
+        let selected = resolveOverlaps(withPropagated)
         let nsText = text as NSString
         var tokenMap: [String: String] = [:]
         var tokenByValue: [String: String] = [:]
@@ -302,11 +337,127 @@ public enum PIIShield {
         return sum % 10 == 0
     }
 
+    public static func passesIbanMod97(_ raw: String) -> Bool {
+        let cleaned = raw.replacingOccurrences(of: " ", with: "").uppercased()
+        guard cleaned.count >= 15 && cleaned.count <= 34 else {
+            return false
+        }
+        let scalars = Array(cleaned.unicodeScalars)
+        guard scalars.count >= 4,
+              (65...90).contains(scalars[0].value),
+              (65...90).contains(scalars[1].value),
+              (48...57).contains(scalars[2].value),
+              (48...57).contains(scalars[3].value) else {
+            return false
+        }
+
+        let rearranged = scalars[4...] + scalars[..<4]
+        var remainder = 0
+        for scalar in rearranged {
+            if (65...90).contains(scalar.value) {
+                let numeric = Int(scalar.value - 55)
+                remainder = (remainder * 100 + numeric) % 97
+            } else if (48...57).contains(scalar.value) {
+                let digit = Int(scalar.value - 48)
+                remainder = (remainder * 10 + digit) % 97
+            } else {
+                return false
+            }
+        }
+        return remainder == 1
+    }
+
+    private static func isValidPersonWord(_ word: String) -> Bool {
+        let nsWord = word as NSString
+        let range = NSRange(location: 0, length: nsWord.length)
+        return personWordRegex.firstMatch(in: word, range: range) != nil
+    }
+
+    private static func collectPersonMatches(in text: String) -> [Candidate] {
+        let nsText = text as NSString
+        let matches = personAfterCueRegex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        var results: [Candidate] = []
+
+        for match in matches {
+            guard match.numberOfRanges > 1 else { continue }
+            let capRange = match.range(at: 1)
+            guard capRange.location != NSNotFound, capRange.length > 0 else { continue }
+            let rawSegment = nsText.substring(with: capRange)
+            let trimmed = rawSegment.trimmingCharacters(in: .whitespaces)
+            let words = trimmed.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+
+            var validWords: [String] = []
+            for word in words {
+                if validWords.count >= 4 { break }
+                if !isValidPersonWord(word) { break }
+                if personStoplist.contains(word.lowercased()) { break }
+                validWords.append(word)
+            }
+            guard validWords.count >= 2 else { continue }
+
+            let candidateName = validWords.joined(separator: " ")
+            let innerRange = (rawSegment as NSString).range(of: candidateName)
+            guard innerRange.location != NSNotFound else { continue }
+
+            let finalRange = NSRange(location: capRange.location + innerRange.location, length: candidateName.utf16.count)
+            results.append(
+                Candidate(
+                    range: finalRange,
+                    original: nsText.substring(with: finalRange),
+                    category: .person,
+                    priority: PiiCategory.person.priority
+                )
+            )
+        }
+        return results
+    }
+
+    private static func collectLabeledAccountMatches(in text: String) -> [Candidate] {
+        let nsText = text as NSString
+        return collectMatches(
+            in: text,
+            regex: labeledAccountRegex,
+            category: .account,
+            captureGroup: 1,
+            priorityOverride: 92
+        ).filter { candidate in
+            let prefixLoc = max(0, candidate.range.location - 20)
+            let prefix = nsText.substring(with: NSRange(location: prefixLoc, length: candidate.range.location - prefixLoc)).lowercased()
+            if prefix.contains("card") && !prefix.contains("account") && !prefix.contains("acct") && !prefix.contains("bank") && !prefix.contains("mrn") {
+                let digits = candidate.original.compactMap { $0.wholeNumberValue }
+                if digits.count >= 13 && digits.count <= 19 {
+                    return passesLuhn(candidate.original)
+                }
+            }
+            return true
+        }
+    }
+
+    private static func collectLabeledAddressMatches(in text: String) -> [Candidate] {
+        collectMatches(in: text, regex: labeledAddressRegex, category: .address, captureGroup: 1).compactMap { candidate in
+            let trimmed = candidate.original.trimmingCharacters(in: .whitespaces)
+            guard trimmed.count >= 8 else { return nil }
+            let nsTrimmed = trimmed as NSString
+            guard addressSignalRegex.firstMatch(in: trimmed, range: NSRange(location: 0, length: nsTrimmed.length)) != nil else {
+                return nil
+            }
+            let inner = (candidate.original as NSString).range(of: trimmed)
+            guard inner.location != NSNotFound else { return nil }
+            return Candidate(
+                range: NSRange(location: candidate.range.location + inner.location, length: inner.length),
+                original: trimmed,
+                category: .address,
+                priority: candidate.priority
+            )
+        }
+    }
+
     private static func collectMatches(
         in text: String,
         regex: NSRegularExpression,
         category: PiiCategory,
-        captureGroup: Int = 0
+        captureGroup: Int = 0,
+        priorityOverride: Int? = nil
     ) -> [Candidate] {
         let nsText = text as NSString
         let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
@@ -323,7 +474,7 @@ public enum PIIShield {
                     range: range,
                     original: substring,
                     category: category,
-                    priority: category.priority
+                    priority: priorityOverride ?? category.priority
                 )
             )
         }
@@ -334,6 +485,61 @@ public enum PIIShield {
         collectMatches(in: text, regex: cardNumberRegex, category: .account).filter {
             passesLuhn($0.original)
         }
+    }
+
+    private static func collectIbanMatches(in text: String) -> [Candidate] {
+        collectMatches(in: text, regex: ibanRegex, category: .account).filter {
+            passesIbanMod97($0.original)
+        }
+    }
+
+    private static func isBoundaryScalar(_ scalar: unichar?) -> Bool {
+        guard let scalar, let unicode = UnicodeScalar(scalar) else { return true }
+        return !CharacterSet.alphanumerics.contains(unicode)
+    }
+
+    private static func propagateDetectedCandidates(in text: String, initial: [Candidate]) -> [Candidate] {
+        let nsText = text as NSString
+        var expanded = initial
+        var seenKeys = Set<String>()
+
+        for candidate in initial {
+            guard candidate.category == .person ||
+                    candidate.category == .taxId ||
+                    candidate.category == .account ||
+                    candidate.category == .address else {
+                continue
+            }
+            guard candidate.original.count >= 4 else { continue }
+            let dedupe = "\(candidate.category.rawValue)\u{0000}\(candidate.original.lowercased())"
+            if seenKeys.contains(dedupe) { continue }
+            seenKeys.insert(dedupe)
+
+            let options: NSString.CompareOptions = candidate.category == .taxId ? [] : [.caseInsensitive]
+            var searchStart = 0
+            while searchStart < nsText.length {
+                let remaining = NSRange(location: searchStart, length: nsText.length - searchStart)
+                let found = nsText.range(of: candidate.original, options: options, range: remaining)
+                guard found.location != NSNotFound else { break }
+
+                let prevChar: unichar? = found.location > 0 ? nsText.character(at: found.location - 1) : nil
+                let nextIdx = NSMaxRange(found)
+                let nextChar: unichar? = nextIdx < nsText.length ? nsText.character(at: nextIdx) : nil
+
+                if isBoundaryScalar(prevChar) && isBoundaryScalar(nextChar) {
+                    expanded.append(
+                        Candidate(
+                            range: found,
+                            original: nsText.substring(with: found),
+                            category: candidate.category,
+                            priority: candidate.priority
+                        )
+                    )
+                }
+                searchStart = NSMaxRange(found)
+            }
+        }
+        return expanded
     }
 
     private static func resolveOverlaps(_ candidates: [Candidate]) -> [Candidate] {

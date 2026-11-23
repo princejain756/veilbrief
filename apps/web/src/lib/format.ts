@@ -1,4 +1,4 @@
-import type { Platform, RiskLevel } from "@/lib/types";
+import type { InferenceSource, Platform, RiskLevel } from "@/lib/types";
 
 export function formatInteger(value: number): string {
   if (!Number.isFinite(value)) return "0";
@@ -52,8 +52,10 @@ export function riskClass(value: RiskLevel): string {
   return "pill-emerald";
 }
 
-export function sourceLabel(value: "ON_DEVICE" | "IN_CLOUD"): string {
-  return value === "ON_DEVICE" ? "On device" : "In cloud";
+export function sourceLabel(value: InferenceSource): string {
+  if (value === "ON_DEVICE") return "On device";
+  if (value === "IN_CLOUD") return "In cloud";
+  return "Unverified";
 }
 
 export function platformLabel(value: Platform): string {
@@ -73,6 +75,11 @@ export function inferModeLabel(value: string): string {
 export function shortUid(value: string | undefined): string {
   if (!value) return "No UID";
   return `${value.slice(0, 8)}...`;
+}
+
+export function shortDigest(sha256: string | null | undefined): string {
+  if (!sha256) return "None";
+  return `sha256:${sha256.slice(0, 12)}`;
 }
 
 export function filenameFromPath(value: string): string {

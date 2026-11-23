@@ -9,9 +9,12 @@
   },
   "dependencies": {
     "@veilbrief/core": "*",
+    "docx": "^9.16.0",
     "firebase": "^13.4.0",
     "lucide-react": "^0.468.0",
+    "mammoth": "^1.13.0",
     "next": "^16.0.0",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

@@ -1,9 +1,10 @@
 "use client";
 
 import {
+  FileCheck,
   FileImage,
   FileText,
-  ImagePlus,
+  FileUp,
   LoaderCircle,
   LockKeyhole,
   Play,
@@ -13,7 +14,6 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import Image from "next/image";
 import { useRef, useState } from "react";
 import { formatBytes, formatChars, formatInteger } from "@/lib/format";
 import type { InferenceMode, Scenario } from "@/lib/types";
@@ -22,11 +22,14 @@ interface InputPanelProps {
   scenarios: Scenario[];
   selectedScenarioId: string;
   text: string;
+  loadedFileName: string;
   imageDataUrl: string | null;
   imageName: string;
   imageSize: number;
   imageLoading: boolean;
+  fileParsing: boolean;
   mode: InferenceMode;
+  maskAmounts: boolean;
   forcedOffline: boolean;
   maxOnDeviceChars: number;
   running: boolean;
@@ -38,6 +41,7 @@ interface InputPanelProps {
   onFileSelected: (file: File) => void;
   onClearImage: () => void;
   onModeChange: (mode: InferenceMode) => void;
+  onMaskAmountsChange: (value: boolean) => void;
   onRun: () => void;
 }
 
@@ -66,11 +70,14 @@ export function InputPanel({
   scenarios,
   selectedScenarioId,
   text,
+  loadedFileName,
   imageDataUrl,
   imageName,
   imageSize,
   imageLoading,
+  fileParsing,
   mode,
+  maskAmounts,
   forcedOffline,
   maxOnDeviceChars,
   running,
@@ -82,6 +89,7 @@ export function InputPanel({
   onFileSelected,
   onClearImage,
   onModeChange,
+  onMaskAmountsChange,
   onRun,
 }: InputPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -98,9 +106,9 @@ export function InputPanel({
     <section className="app-card flex min-h-full flex-col overflow-hidden">
       <div className="flex items-center justify-between border-b border-[var(--border-line)] px-4 py-3">
         <div>
-          <h2 className="type-section">Input packet</h2>
+          <h2 className="type-section">Contract packet</h2>
           <p className="type-meta mt-0.5 text-[var(--text-faint)]">
-            Contract text and multimodal evidence
+            Local PDF/DOCX import, paste, or invoice image
           </p>
         </div>
         <div className="pill pill-neutral type-pill">
@@ -166,52 +174,18 @@ export function InputPanel({
 
         <div className="mt-4">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <label
-              htmlFor="contract-text"
-              className="type-kpi-label text-[var(--text-muted)]"
-            >
-              Document text
-            </label>
-            <span
-              className={`numeral type-meta ${
-                overLimit
-                  ? "text-[var(--status-amber-ink)]"
-                  : "text-[var(--text-faint)]"
-              }`}
-            >
-              {formatChars(text.length)}
-            </span>
-          </div>
-          <textarea
-            id="contract-text"
-            className="app-field custom-scrollbar h-[10.5rem] resize-y p-3 text-[13px] leading-[21px]"
-            value={text}
-            onChange={(event) => onTextChange(event.target.value)}
-            placeholder="Paste a contract, invoice narrative, or policy excerpt. Text stays local until a scrubbed prompt is explicitly routed to cloud."
-            spellCheck={false}
-          />
-          {overLimit && (
-            <p className="type-meta mt-1.5 text-[var(--status-amber-ink)]">
-              This packet exceeds the {formatInteger(maxOnDeviceChars)} character
-              on-device limit. Hybrid mode may scrub and escalate it.
-            </p>
-          )}
-        </div>
-
-        <div className="mt-4">
-          <div className="mb-2 flex items-center justify-between gap-2">
             <span className="type-kpi-label text-[var(--text-muted)]">
-              Image evidence
+              Import file locally in browser
             </span>
             <span className="type-meta text-[var(--text-faint)]">
-              PNG or JPEG, inline multimodal input
+              PDF, DOCX, TXT, MD, PNG, JPEG
             </span>
           </div>
 
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg"
+            accept=".pdf,.docx,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/png,image/jpeg"
             className="sr-only"
             onChange={(event) => {
               handleFile(event.target.files?.[0]);
@@ -219,14 +193,14 @@ export function InputPanel({
             }}
           />
 
-          {imageLoading ? (
-            <div className="flex min-h-[5rem] items-center justify-center gap-2 rounded-[7px] border border-[var(--border-line)] bg-[var(--bg-subtle)] px-3 text-[12px] text-[var(--text-muted)]">
+          {fileParsing || imageLoading ? (
+            <div className="flex min-h-[4.25rem] items-center justify-center gap-2 rounded-[7px] border border-[var(--border-line)] bg-[var(--bg-subtle)] px-3 text-[12px] text-[var(--text-muted)]">
               <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Loading inline PNG evidence
+              {fileParsing ? "Extracting text locally in browser" : "Loading image evidence"}
             </div>
           ) : imageDataUrl ? (
             <div className="flex items-center gap-3 rounded-[7px] border border-[var(--border-line)] bg-[var(--bg-subtle)] p-2.5">
-              <div className="relative h-[4.5rem] w-[6rem] shrink-0 overflow-hidden rounded-[6px] border border-[var(--border-line)] bg-[var(--bg-surface)]">
+              <div className="relative h-[4.25rem] w-[5.5rem] shrink-0 overflow-hidden rounded-[6px] border border-[var(--border-line)] bg-[var(--bg-surface)]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={imageDataUrl}
@@ -239,9 +213,9 @@ export function InputPanel({
                   {imageName || "Attached invoice"}
                 </div>
                 <div className="numeral type-meta mt-0.5 text-[var(--text-faint)]">
-                  {imageSize ? formatBytes(imageSize) : "Sample PNG"}
+                  {imageSize ? formatBytes(imageSize) : "Sample PNG"} (locked on-device)
                 </div>
-                <div className="mt-2 flex items-center gap-1.5">
+                <div className="mt-1.5 flex items-center gap-1.5">
                   <button
                     type="button"
                     className="button-ghost !min-h-6 !px-1.5 text-[11px]"
@@ -264,7 +238,7 @@ export function InputPanel({
           ) : (
             <button
               type="button"
-              className={`group flex min-h-[5rem] w-full items-center justify-center gap-3 rounded-[7px] border border-dashed px-3 py-3 text-left transition-colors ${
+              className={`group flex min-h-[4.25rem] w-full items-center justify-center gap-3 rounded-[7px] border border-dashed px-3 py-2.5 text-left transition-colors ${
                 dragging
                   ? "drop-active"
                   : "border-[var(--border-strong)] bg-[var(--bg-subtle)] hover:border-[var(--status-cobalt)]"
@@ -288,18 +262,60 @@ export function InputPanel({
                 handleFile(event.dataTransfer.files?.[0]);
               }}
             >
-              <span className="flex h-9 w-9 items-center justify-center rounded-[7px] border border-[var(--border-line)] bg-[var(--bg-surface)] text-[var(--text-muted)]">
-                <ImagePlus className="h-4 w-4" aria-hidden="true" />
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] border border-[var(--border-line)] bg-[var(--bg-surface)] text-[var(--text-muted)]">
+                <FileUp className="h-4 w-4" aria-hidden="true" />
               </span>
-              <span>
+              <span className="min-w-0">
                 <span className="block text-[12px] font-[600] text-[var(--text-ink)]">
-                  Drop invoice image or browse
+                  Drop PDF / DOCX contract or invoice image
                 </span>
                 <span className="mt-0.5 block text-[11px] text-[var(--text-faint)]">
-                  The original image is never stored in Firestore
+                  Parsed 100% locally in browser memory. Raw files never leave this tab.
                 </span>
               </span>
             </button>
+          )}
+
+          {loadedFileName && (
+            <div className="mt-2 flex items-center gap-1.5 rounded-[6px] border border-[color-mix(in_srgb,var(--status-emerald)_30%,transparent)] bg-[var(--status-emerald-soft)] px-2.5 py-1.5 text-[11px] font-[560] text-[var(--status-emerald-ink)]">
+              <FileCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">
+                Parsed locally: {loadedFileName} (0 bytes uploaded)
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <label
+              htmlFor="contract-text"
+              className="type-kpi-label text-[var(--text-muted)]"
+            >
+              Document text
+            </label>
+            <span
+              className={`numeral type-meta ${
+                overLimit
+                  ? "text-[var(--status-amber-ink)]"
+                  : "text-[var(--text-faint)]"
+              }`}
+            >
+              {formatChars(text.length)}
+            </span>
+          </div>
+          <textarea
+            id="contract-text"
+            className="app-field custom-scrollbar h-[10.5rem] resize-y p-3 text-[13px] leading-[21px]"
+            value={text}
+            onChange={(event) => onTextChange(event.target.value)}
+            placeholder="Paste a freelance MSA, drop a local PDF/DOCX above, or choose a scenario."
+            spellCheck={false}
+          />
+          {overLimit && (
+            <p className="type-meta mt-1.5 text-[var(--status-amber-ink)]">
+              Packet exceeds {formatInteger(maxOnDeviceChars)} chars. Auto Hybrid scrubs locally then escalates.
+            </p>
           )}
         </div>
 
@@ -326,21 +342,30 @@ export function InputPanel({
             </select>
             <p className="type-meta mt-1 text-[var(--text-faint)]">
               {forcedOffline
-                ? "Offline mode forces local execution until cloud access is re-enabled."
+                ? "Offline lock forces local-only inference."
                 : imageDataUrl
-                  ? "Image pixels stay on-device. Text scrubbing does not make an uploaded image safe for cloud egress."
-                  : "Hybrid sends only the shielded text payload when local context is insufficient."}
+                  ? "Image pixels stay strictly on-device."
+                  : "Hybrid runs local contextual scrub first, then escalates shielded tokens only."}
             </p>
           </div>
 
-          <div className="min-w-[10.5rem]">
+          <div className="min-w-[11rem]">
             <span className="type-kpi-label mb-1.5 block text-[var(--text-muted)]">
-              Local PII shield
+              PII shield options
             </span>
-            <span className="flex h-9 items-center gap-1.5 rounded-[7px] border border-[color-mix(in_srgb,var(--status-emerald)_38%,transparent)] bg-[var(--status-emerald-soft)] px-2.5 text-[12px] font-[570] text-[var(--status-emerald-ink)]">
-              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-              Active
-            </span>
+            <label className="flex h-9 cursor-pointer items-center justify-between gap-2 rounded-[7px] border border-[color-mix(in_srgb,var(--status-emerald)_38%,transparent)] bg-[var(--status-emerald-soft)] px-2.5 text-[12px] font-[570] text-[var(--status-emerald-ink)]">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Mask amounts
+              </span>
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-emerald-600"
+                checked={maskAmounts}
+                onChange={(event) => onMaskAmountsChange(event.target.checked)}
+                disabled={running}
+              />
+            </label>
           </div>
         </div>
 
@@ -381,7 +406,7 @@ export function InputPanel({
           type="button"
           className="button-primary min-h-10 w-full"
           onClick={onRun}
-          disabled={running || imageLoading || !hasInput}
+          disabled={running || imageLoading || fileParsing || !hasInput}
         >
           {running ? (
             <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -392,7 +417,7 @@ export function InputPanel({
         </button>
         <div className="mt-2 flex items-center justify-center gap-1.5 text-[10px] text-[var(--text-faint)]">
           <FileImage className="h-3 w-3" aria-hidden="true" />
-          Raw source text is not written to Firestore
+          Raw contract text and token maps never write to Firestore
         </div>
       </div>
     </section>

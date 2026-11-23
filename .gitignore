@@ -10,3 +10,5 @@ GoogleService-Info.plist
 DerivedData/
 superteam_build/
 *.tsbuildinfo
+.vercel
+.env*

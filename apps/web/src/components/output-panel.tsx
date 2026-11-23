@@ -13,7 +13,9 @@ import { TelemetryTab } from "@/components/telemetry-tab";
 import type {
   AuditFeedItem,
   AuditView,
+  RedlineDecision,
   RemoteParam,
+  SessionStats,
 } from "@/lib/types";
 
 export type OutputTab = "audit" | "pii" | "telemetry";
@@ -24,14 +26,21 @@ interface OutputPanelProps {
   running: boolean;
   progressLabel: string;
   progress: number;
+  streamText: string;
+  decisions: Record<number, RedlineDecision>;
   remoteParams: RemoteParam[];
   remoteSource: "defaults" | "live";
   refreshingRemote: boolean;
   feed: AuditFeedItem[];
   uid?: string;
   authReady: boolean;
+  sessionStats: SessionStats;
   onTabChange: (tab: OutputTab) => void;
   onRefreshRemote: () => void;
+  onDecisionChange: (index: number, next: RedlineDecision) => void;
+  onExportDocx: (updatedText: string) => Promise<void>;
+  onExportMarkdown: (updatedText: string) => void;
+  onExportReceipt: () => void;
 }
 
 const tabs: Array<{
@@ -40,10 +49,10 @@ const tabs: Array<{
   icon: typeof FileCheck2;
 }> = [
   { id: "audit", label: "Audit & Redlines", icon: FileCheck2 },
-  { id: "pii", label: "Zero-Egress PII Diff", icon: ShieldCheck },
+  { id: "pii", label: "Zero-Egress Wire Proof", icon: ShieldCheck },
   {
     id: "telemetry",
-    label: "Telemetry & Multi-Platform Sync",
+    label: "Telemetry & Sync",
     icon: RadioTower,
   },
 ];
@@ -54,22 +63,29 @@ export function OutputPanel({
   running,
   progressLabel,
   progress,
+  streamText,
+  decisions,
   remoteParams,
   remoteSource,
   refreshingRemote,
   feed,
   uid,
   authReady,
+  sessionStats,
   onTabChange,
   onRefreshRemote,
+  onDecisionChange,
+  onExportDocx,
+  onExportMarkdown,
+  onExportReceipt,
 }: OutputPanelProps) {
   return (
     <section className="app-card flex min-h-full flex-col overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-line)] px-4 py-3">
         <div>
-          <h2 className="type-section">Audit output</h2>
+          <h2 className="type-section">Redline workbench</h2>
           <p className="type-meta mt-0.5 text-[var(--text-faint)]">
-            Local rehydration, egress proof, and sync state
+            Interactive clause diffs, wire SHA-256 receipt, and clean .docx export
           </p>
         </div>
         <div className="pill pill-neutral type-pill">
@@ -85,10 +101,10 @@ export function OutputPanel({
           />
           <span>
             {running
-              ? "Audit in progress"
+              ? "Streaming audit"
               : audit
                 ? "Audit ready"
-                : "Awaiting packet"}
+                : "Awaiting audit"}
           </span>
         </div>
       </div>
@@ -118,8 +134,19 @@ export function OutputPanel({
       </div>
 
       <div className="output-scroll custom-scrollbar flex-1 p-4">
-        {activeTab === "audit" && audit && <AuditTab audit={audit} />}
-        {activeTab === "pii" && audit && <PiiDiffTab audit={audit} />}
+        {!running && activeTab === "audit" && audit && (
+          <AuditTab
+            audit={audit}
+            decisions={decisions}
+            onDecisionChange={onDecisionChange}
+            onExportDocx={onExportDocx}
+            onExportMarkdown={onExportMarkdown}
+            onExportReceipt={onExportReceipt}
+          />
+        )}
+        {!running && activeTab === "pii" && audit && (
+          <PiiDiffTab audit={audit} />
+        )}
         {activeTab === "telemetry" && (
           <TelemetryTab
             remoteParams={remoteParams}
@@ -128,12 +155,13 @@ export function OutputPanel({
             feed={feed}
             uid={uid}
             authReady={authReady}
+            sessionStats={sessionStats}
             onRefresh={onRefreshRemote}
           />
         )}
 
         {running && activeTab !== "telemetry" && (
-          <div className="empty-grid flex min-h-[25rem] flex-col items-center justify-center rounded-[7px] border border-dashed border-[var(--border-line)] px-6 text-center">
+          <div className="empty-grid flex min-h-[25rem] flex-col items-center justify-center rounded-[7px] border border-dashed border-[var(--border-line)] px-6 py-6 text-center">
             <span className="flex h-12 w-12 items-center justify-center rounded-full border border-[var(--border-line)] bg-[var(--bg-surface)] text-[var(--status-emerald-ink)]">
               <LoaderCircle
                 className="h-5 w-5 animate-spin"
@@ -150,6 +178,11 @@ export function OutputPanel({
             <p className="numeral type-meta mt-2 text-[var(--text-faint)]">
               {Math.round(progress * 100)}%
             </p>
+            {streamText && (
+              <pre className="font-code mt-4 max-h-40 w-full max-w-xl overflow-auto whitespace-pre-wrap break-words rounded-[6px] border border-[var(--border-line)] bg-[var(--bg-surface)] p-3 text-left text-[11px] leading-5 text-[var(--text-muted)]">
+                {streamText}
+              </pre>
+            )}
           </div>
         )}
 
@@ -158,11 +191,9 @@ export function OutputPanel({
             <span className="flex h-12 w-12 items-center justify-center rounded-full border border-[var(--border-line)] bg-[var(--bg-surface)] text-[var(--text-muted)]">
               <ScanSearch className="h-5 w-5" aria-hidden="true" />
             </span>
-            <h3 className="type-section mt-4">No audit is open</h3>
-            <p className="type-meta mt-1 max-w-[22rem] text-[var(--text-muted)]">
-              Choose a sample or add a document, then run the audit. The exact
-              source, scrub map, redlines, and routing evidence will appear
-              here.
+            <h3 className="type-section mt-4">Ready to review</h3>
+            <p className="type-meta mt-1 max-w-[24rem] text-[var(--text-muted)]">
+              Load the Freelance MSA, drop your own PDF or DOCX contract, and click Run Hybrid Audit to inspect flagged terms and export clean redlines.
             </p>
           </div>
         )}

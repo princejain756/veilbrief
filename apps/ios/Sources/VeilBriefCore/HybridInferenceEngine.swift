@@ -56,6 +56,7 @@ public struct AuditHistoryEntry: Identifiable, Equatable, Sendable {
 public enum HybridInferenceError: Error, LocalizedError, Sendable {
     case firebaseNotConfigured
     case onDeviceUnavailable
+    case malformedResponse
 
     public var errorDescription: String? {
         switch self {
@@ -63,6 +64,8 @@ public enum HybridInferenceError: Error, LocalizedError, Sendable {
             return "Firebase is not configured yet. Add GoogleService-Info.plist to run Firebase AI Logic."
         case .onDeviceUnavailable:
             return "On-device inference requires iOS 26 or macOS 26 and Apple Intelligence."
+        case .malformedResponse:
+            return "Model returned malformed JSON that failed schema validation."
         }
     }
 }
@@ -73,7 +76,7 @@ public enum HybridInferenceEngine {
         config: HybridRemoteConfig,
         requestedMode: InferenceModePolicy? = nil,
         isOffline: Bool = false,
-        maskAmounts: Bool = false,
+        maskAmounts: Bool = true,
         persistToFirestore: Bool = true
     ) async throws -> HybridAuditRunResult {
         let startTime = Date()
@@ -164,10 +167,13 @@ public enum HybridInferenceEngine {
             throw lastError
         }
 
-        let parsed = parseAuditResponse(from: rawResponse)
+        let parsed = try parseAuditResponse(from: rawResponse)
         let riskLevel = parsed.riskLevel.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard ["low", "medium", "high", "critical"].contains(riskLevel) else {
+            throw HybridInferenceError.malformedResponse
+        }
         let scrubbedOutput = ParsedAuditOutput(
-            riskLevel: ["low", "medium", "high", "critical"].contains(riskLevel) ? riskLevel : "medium",
+            riskLevel: riskLevel,
             summary: parsed.summary,
             redFlags: parsed.redFlags,
             recommendedEdits: parsed.recommendedEdits
@@ -259,7 +265,7 @@ public enum HybridInferenceEngine {
         """
     }
 
-    private static func parseAuditResponse(from raw: String) -> ParsedAuditOutput {
+    private static func parseAuditResponse(from raw: String) throws -> ParsedAuditOutput {
         let cleaned = raw
             .replacingOccurrences(of: "```json", with: "")
             .replacingOccurrences(of: "```", with: "")
@@ -277,12 +283,7 @@ public enum HybridInferenceEngine {
             return decoded
         }
 
-        return ParsedAuditOutput(
-            riskLevel: "medium",
-            summary: cleaned.isEmpty ? "Completed audit." : cleaned,
-            redFlags: [],
-            recommendedEdits: []
-        )
+        throw HybridInferenceError.malformedResponse
     }
 
     private static func rehydrateAudit(_ output: ParsedAuditOutput, tokenMap: [String: String]) -> ParsedAuditOutput {

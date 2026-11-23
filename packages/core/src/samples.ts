@@ -23,27 +23,28 @@ Email: arjun.mehta@example.com
 Phone: (415) 555-0142
 Social Security Number: 123-45-6789
 Mailing address: 1288 Market Street, San Francisco, CA 94103
+Agreed Fee Cap: $24,000 ($185/hr)
 
 1. SERVICES
-Contractor will provide product strategy, technical research, and delivery support for the client's document review platform. The statement of work may be updated by the client from time to time, and contractor will use commercially reasonable efforts to accommodate changes requested through email.
+Contractor will provide product strategy, architecture review, and engineering support for deliverables on Client's unannounced Project Nightfall lidar pipeline built at Contractor's Koramangala studio. The statement of work may be updated by Client from time to time, and Contractor will accommodate scope revisions requested by email without an equitable adjustment in fee.
 
 2. FEES AND PAYMENT
-Client will pay approved invoices within ninety days after receipt. Client may withhold payment for any amount it disputes in good faith, even when the disputed amount is unrelated to undisputed work. Contractor bears all collection costs and may not suspend services without thirty days written notice.
+Client shall pay approved invoices within ninety days after receipt. Client may withhold payment for any amount it disputes in good faith, even when the disputed amount is unrelated to undisputed work. Contractor bears all collection costs and may not suspend services without thirty days written notice.
 
 3. INTELLECTUAL PROPERTY
-Contractor assigns to client all right, title, and interest in every invention, note, model, prompt, workflow, design, document, and derivative work created before, during, or after the engagement that relates in any way to client's actual or contemplated business. This assignment is perpetual, worldwide, irrevocable, and includes moral rights to the extent permitted by law. Contractor retains no license to reuse generic know-how.
+Contractor assigns to Client all right, title, and interest in every invention, note, model, prompt, workflow, design, document, and derivative work created before, during, or after the engagement that relates in any way to Client's actual or contemplated business. Contractor retains no license to reuse generic know-how or pre-existing tooling.
 
 4. INDEMNIFICATION
-Contractor will defend, indemnify, and hold harmless client and its affiliates from any claim, loss, penalty, settlement, or expense arising from contractor's services, whether or not caused by contractor's negligence and without any cap on liability.
+Contractor will defend, indemnify, and hold harmless Client and its affiliates from any claim, loss, penalty, settlement, or expense arising from Contractor's services, whether or not caused by Contractor's negligence and without any cap on liability.
 
 5. TERM AND RENEWAL
 The initial term is twelve months. The agreement automatically renews for successive twelve month terms unless either party provides written notice of non-renewal at least one hundred twenty days before the current term ends. Client may terminate for convenience on five days notice.
 
 6. CONFIDENTIALITY
-Contractor must protect all client information indefinitely, including information that is publicly available or independently developed. Contractor may not disclose the existence of the engagement without prior written approval.
+Contractor must protect all Client information indefinitely, including information that becomes publicly available or was independently developed. Contractor may not disclose the existence of the engagement in a portfolio or resume without prior written approval.
 
 7. INSURANCE AND COMPLIANCE
-Contractor will maintain commercial general liability, professional liability, cyber liability, and workers compensation coverage at limits acceptable to client and will name client as an additional insured. Contractor is solely responsible for all taxes related to the engagement.
+Contractor will maintain commercial general liability, professional liability, cyber liability, and workers compensation coverage at limits acceptable to Client and will name Client as an additional insured. Contractor is solely responsible for all taxes related to the engagement.
 
 8. GOVERNING LAW
 This agreement is governed by Delaware law. Any dispute must be brought exclusively in New Castle County, Delaware, and each party waives the right to a jury trial.`;

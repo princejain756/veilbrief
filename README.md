@@ -4,7 +4,7 @@ VeilBrief is a hybrid on-device contract redliner built with Firebase AI Logic, 
 
 - Live web workbench: https://veilbrief.prince.sh
 - Chrome extension signature test portal: https://veilbrief.prince.sh/demo-portal
-- Demo video: https://www.youtube.com/watch?v=DicvlodZiJg
+- Demo video: https://www.youtube.com/watch?v=BkMcnp7thDA
 
 ## How the privacy pipeline works
 
